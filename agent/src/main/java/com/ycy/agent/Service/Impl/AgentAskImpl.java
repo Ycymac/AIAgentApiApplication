@@ -78,7 +78,7 @@ public class AgentAskImpl implements AgentAsk {
 
 
         }catch (Exception e){
-            //先这样暂时处理
+            //先这样暂时处理，后续添加全局异常处理器和通用返回类
            if(e instanceof NoApiKeyException)
                log.error("没有apikey，信息：{}",e.getMessage());
            else if (e instanceof ApiException)

@@ -22,6 +22,7 @@
     </scm>
     <modules>
         <module>agent</module>
+        <module>framework</module>
     </modules>
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

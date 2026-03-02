@@ -8,6 +8,7 @@
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
         <module name="agent" />
+        <module name="framework" />
       </profile>
     </annotationProcessing>
     <bytecodeTargetLevel>
@@ -19,6 +20,7 @@
       <module name="AIApplication" options="" />
       <module name="agent" options="" />
       <module name="agentask" options="-parameters" />
+      <module name="framework" options="" />
     </option>
   </component>
 </project>
