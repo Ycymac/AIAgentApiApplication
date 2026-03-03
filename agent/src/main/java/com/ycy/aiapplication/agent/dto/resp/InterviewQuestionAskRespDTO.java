@@ -15,7 +15,7 @@ import java.util.List;
 @AllArgsConstructor
 @NoArgsConstructor
 @Builder
-public class InterviewQuestionAskResp {
+public class InterviewQuestionAskRespDTO {
 
     private List<InterviewQuestion> questions;
 }

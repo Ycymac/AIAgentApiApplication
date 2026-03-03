@@ -1,7 +1,9 @@
 package com.ycy.aiapplication.agent.Service;
 
-import com.ycy.aiapplication.agent.dto.req.InterviewQuestionAskReq;
-import com.ycy.aiapplication.agent.dto.resp.InterviewQuestionAskResp;
+import com.ycy.aiapplication.agent.dto.req.AnswerEvaluationReqDTO;
+import com.ycy.aiapplication.agent.dto.req.InterviewQuestionAskReqDTO;
+import com.ycy.aiapplication.agent.dto.resp.AnswerEvaluationRespDTO;
+import com.ycy.aiapplication.agent.dto.resp.InterviewQuestionAskRespDTO;
 
 /**
  * api调用服务层
@@ -13,6 +15,8 @@ import com.ycy.aiapplication.agent.dto.resp.InterviewQuestionAskResp;
  */
 public interface AgentAsk {
 
-    InterviewQuestionAskResp giveInterviewQuestions(InterviewQuestionAskReq requestParam);
+    InterviewQuestionAskRespDTO giveInterviewQuestions(InterviewQuestionAskReqDTO requestParam);
+
+    AnswerEvaluationRespDTO singleQuestionAnswerEvaluation(AnswerEvaluationReqDTO requestParam);
 
 }

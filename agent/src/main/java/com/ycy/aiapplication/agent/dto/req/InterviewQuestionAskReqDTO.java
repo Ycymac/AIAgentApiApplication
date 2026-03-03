@@ -13,7 +13,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @NoArgsConstructor
 @Builder
-public class InterviewQuestionAskReq {
+public class InterviewQuestionAskReqDTO {
 
     /**
      * 面试对象年级

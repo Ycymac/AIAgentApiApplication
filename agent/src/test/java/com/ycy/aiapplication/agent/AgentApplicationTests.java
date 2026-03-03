@@ -10,8 +10,10 @@ import com.alibaba.dashscope.exception.NoApiKeyException;
 import com.ycy.aiapplication.agent.Service.AgentAsk;
 import com.ycy.aiapplication.agent.common.constant.ApiConstant;
 import com.ycy.aiapplication.agent.common.pojo.InterviewQuestion;
-import com.ycy.aiapplication.agent.dto.req.InterviewQuestionAskReq;
-import com.ycy.aiapplication.agent.dto.resp.InterviewQuestionAskResp;
+import com.ycy.aiapplication.agent.dto.req.AnswerEvaluationReqDTO;
+import com.ycy.aiapplication.agent.dto.req.InterviewQuestionAskReqDTO;
+import com.ycy.aiapplication.agent.dto.resp.AnswerEvaluationRespDTO;
+import com.ycy.aiapplication.agent.dto.resp.InterviewQuestionAskRespDTO;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -65,18 +67,32 @@ class AgentApplicationTests {
 
     @Test
     void agentAskImpl_giveInterviewQuestions_Test(){
-        InterviewQuestionAskReq requestParam = InterviewQuestionAskReq.builder()
+        InterviewQuestionAskReqDTO requestParam = InterviewQuestionAskReqDTO.builder()
                 .grade("大二")
                 .major("软件工程")
                 .learningDirection("java后端开发")
                 .learningProgress("学习过的知识点有：1.SpringBoot框架 2.JavaSE基础 3.redis基础，熟悉所有数据类型 3.MySQL使用、底层，尤其是执行引擎相关部分 4.JVM底层知识，例如堆、栈、栈帧、执行引擎、方法区（永久代和元空间）").build();
 
-        InterviewQuestionAskResp interviewQuestionAskResp = agentAsk.giveInterviewQuestions(requestParam);
+        InterviewQuestionAskRespDTO interviewQuestionAskResp = agentAsk.giveInterviewQuestions(requestParam);
         List<InterviewQuestion> questions = interviewQuestionAskResp.getQuestions();
         for(InterviewQuestion q:questions){
             System.out.println("level"+q.getLevel()+" question: "+q.getQuestionDescription());
         }
 
+
+    }
+    @Test
+    void agentAskImpl_answerEvaluation_Test(){
+        InterviewQuestion question = InterviewQuestion.builder()
+                .level(0)
+                .questionDescription("String是基本数据类型吗？Java当中有哪些基本数据类型？")
+                .build();
+        AnswerEvaluationReqDTO requestParam = AnswerEvaluationReqDTO.builder()
+                .question(question)
+                .answer("不是，String是Java当中的引用类型。java当中的基本数据类型有 byte、short、int、long、double、float、char、boolean，所有的基本数据类型都有对应的包装类")
+                .build();
+        AnswerEvaluationRespDTO answerEvaluationRespDTO = agentAsk.singleQuestionAnswerEvaluation(requestParam);
+        System.out.println(answerEvaluationRespDTO.getApiResp().toString());
 
     }
 
