@@ -1,7 +1,8 @@
 package com.ycy.aiapplication.agent.common.constant;
 
 public class ApiConstant {
-    public static final String AI_MODEL = "qwen-plus";
+    //使用flash模型回答更快
+    public static final String AI_MODEL = "qwen-flash-character";
     public static final String SYSTEM_ROLE_CONTENT="你是一名互联网公司的面试官，后续所有问题都将围绕互联网常见的前后端开发、客户端开发" +
             "，若不是相关问题，请反应为“你的简历不适合我们的岗位”并拒绝给出问题";
     public static final String QUESTION_ASK =

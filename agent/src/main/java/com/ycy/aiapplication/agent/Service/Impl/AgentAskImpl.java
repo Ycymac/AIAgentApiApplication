@@ -51,7 +51,7 @@ public class AgentAskImpl implements AgentAsk {
         String description= requestParam.getDescription();
         Generation generation = new Generation();
         Message systemMsg = Message.builder()
-                .role(Role.SYSTEM.getValue())
+                .role(Role.ASSISTANT.getValue())
                 .content(ApiConstant.SYSTEM_ROLE_CONTENT)
                 .build();
         Message userMsg = Message.builder()
