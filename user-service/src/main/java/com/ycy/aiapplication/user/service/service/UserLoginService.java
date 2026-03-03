@@ -14,5 +14,13 @@ public interface UserLoginService {
      */
    Result<LoginRespDTO> login(String accountId, String password);
 
+    /**
+     * 创建新账户
+     * @param accountId 账户id
+     * @param password 密码
+     * @param nickName 昵称
+     * 这里无需返回值，一旦无法创建直接报错
+     */
+   void signUpNewAccount(String accountId,String password,String nickName);
 
 }
