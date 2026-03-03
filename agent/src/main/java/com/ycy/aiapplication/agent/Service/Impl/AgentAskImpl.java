@@ -38,9 +38,9 @@ public class AgentAskImpl implements AgentAsk {
     private String apiKey;
     @Override
     public InterviewQuestionAskResp giveInterviewQuestions(InterviewQuestionAskReq requestParam) {
-        //检查参数是否为空。为空则报异常（这里先用普通的返回），之后添加全局异常处理器、通用返回类等进行完善
+
         if(StrUtil.isEmpty(requestParam.getGrade())||StrUtil.isEmpty(requestParam.getMajor())||StrUtil.isEmpty(requestParam.getLearningDirection())|| StrUtil.isEmpty(requestParam.getLearningProgress())){
-            //后续这里需要抛出异常
+
            throw new RemoteException("用户参数部分未填写，请检查！");
         }
         String description= requestParam.getDescription();

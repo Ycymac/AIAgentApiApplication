@@ -8,6 +8,7 @@
         <option value="$PROJECT_DIR$/AgentAsk/pom.xml" />
         <option value="$PROJECT_DIR$/agent/pom.xml" />
         <option value="$PROJECT_DIR$/framework/pom.xml" />
+        <option value="$PROJECT_DIR$/userlogin/pom.xml" />
       </list>
     </option>
     <option name="ignoredFiles">
