@@ -1,0 +1,21 @@
+package com.ycy.aiapplication.user.service.config;
+
+
+import com.ycy.aiapplication.user.service.toolkit.interceptor.JWTInterceptor;
+import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+@Configuration
+@RequiredArgsConstructor
+public class WebConfiguration implements WebMvcConfigurer {
+    private final JWTInterceptor jwtInterceptor;
+
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(jwtInterceptor)
+                .addPathPatterns("/api/**")
+                .excludePathPatterns("/api/user/service/login");
+    }
+}

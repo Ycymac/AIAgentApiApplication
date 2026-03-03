@@ -21,6 +21,12 @@ public class Results {
                 .setCode(Result.SUCCESS_CODE)
                 .setData(data);
     }
+    public static <T> Result<T> successWithToken(T data,String token){
+        return new Result<T>()
+                .setCode(Result.SUCCESS_CODE)
+                .setToken(token)
+                .setData(data);
+    }
     /**
      * 构建服务端失败响应
      * 没有对应的返回值，设定返回值类型为Void

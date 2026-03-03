@@ -157,6 +157,8 @@
                 <artifactId>transmittable-thread-local</artifactId>
                 <version>${transmittable-thread-local.version}</version>
             </dependency>
+
+
         </dependencies>
     </dependencyManagement>
 

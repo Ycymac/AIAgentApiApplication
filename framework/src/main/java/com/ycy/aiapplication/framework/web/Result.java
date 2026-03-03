@@ -35,6 +35,11 @@ public class Result<T> implements Serializable {
     private String message;
 
     /**
+     * JWT token，用于登录校验
+     */
+    private String token;
+
+    /**
      * 响应数据
      */
     private T data;
