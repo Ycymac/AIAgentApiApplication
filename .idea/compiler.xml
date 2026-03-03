@@ -9,19 +9,12 @@
         <outputRelativeToContentRoot value="true" />
         <module name="agent" />
         <module name="framework" />
-      </profile>
-      <profile name="Annotation profile for userlogin" enabled="true">
-        <sourceOutputDir name="target/generated-sources/annotations" />
-        <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
-        <outputRelativeToContentRoot value="true" />
-        <processorPath useClasspath="false">
-          <entry name="$MAVEN_REPOSITORY$/org/projectlombok/lombok/unknown/lombok-unknown.jar" />
-        </processorPath>
-        <module name="userlogin" />
+        <module name="user-service" />
       </profile>
     </annotationProcessing>
     <bytecodeTargetLevel>
       <module name="agentask" target="17" />
+      <module name="user" target="17" />
     </bytecodeTargetLevel>
   </component>
   <component name="JavacSettings">
@@ -30,7 +23,8 @@
       <module name="agent" options="" />
       <module name="agentask" options="-parameters" />
       <module name="framework" options="" />
-      <module name="userlogin" options="" />
+      <module name="user" options="" />
+      <module name="user-service" options="" />
     </option>
   </component>
 </project>
