@@ -10,7 +10,10 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @Builder
 public class InterviewQuestion {
-
+    /**
+     * 问题编号
+     */
+    private int num;
     /**
      * 问题对应的等级
      */

@@ -1,5 +1,6 @@
 package com.ycy.aiapplication.agent.dto.req;
 
+import com.ycy.aiapplication.agent.common.pojo.IntervieweeForm;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -15,28 +16,13 @@ import lombok.NoArgsConstructor;
 @Builder
 public class InterviewQuestionAskReqDTO {
 
-    /**
-     * 面试对象年级
-     */
-    private String grade;
-    /**
-     * 学习的专业
-     */
-    private String major;
-    /**
-     * 学习方向
-     */
-    private String learningDirection;
-    /**
-     * 学习进度
-     */
-    private String learningProgress;
+    private IntervieweeForm form;
 
-    public String getDescription(){
-        return "面试官您好，我是一位" +grade+
-                "年级学生，我的专业是" +major+
-                "，我的主要的学习方向是" +learningDirection+
-                "，我当前的学习进度为："+learningProgress;
+    public String getFormDescription(){
+        return "面试官您好，我是一位" +form.getGrade()+
+                "年级学生，我的专业是" +form.getMajor()+
+                "，我的主要的学习方向是" +form.getLearningDirection()+
+                "，我当前的学习进度为："+form.getLearningProgress();
 
     }
 }

@@ -33,8 +33,8 @@ public class ApiEvaluationResp {
     @Override
     public String toString() {
         return "ApiEvaluationResp{" +
+                "comment='" + comment + '\'' +
                 "accuracy=" + accuracy +
-                ", comment='" + comment + '\'' +
                 ", completeness=" + completeness +
                 ", levelOfDetail=" + levelOfDetail +
                 '}';
