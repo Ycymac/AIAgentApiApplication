@@ -40,13 +40,12 @@ public class UserLoginServiceImpl implements UserLoginService {
     public Result<LoginRespDTO> login(String accountId, String password) {
 
         LambdaQueryWrapper<UserAccountDO> queryWrapper = new LambdaQueryWrapper<UserAccountDO>()
-                .eq(UserAccountDO::getAccountId, accountId)
-                .eq(UserAccountDO::getPassword, password);
+                .eq(UserAccountDO::getAccountId, accountId);
 
         UserAccountDO userAccountDO = userAccountDOMapper.selectOne(queryWrapper);
         //当前未进行密码加密，直接进行明文比较
         if(ObjectUtil.isNull(userAccountDO)||!userAccountDO.getPassword().equals(password)){
-            log.error("账户密码校验异常，登录账户：{},查询到的账户：{}",accountId, Optional.ofNullable(userAccountDO.getAccountId()).orElse("未查询到对应账户"));
+            log.error("账户密码校验异常，登录账户：{},查询到的账户：{}",accountId, Optional.ofNullable(userAccountDO).map(UserAccountDO::getAccountId).orElse("未查询到对应账户"));
             throw new ClientException(BaseErrorCode.PASSWORD_VERIFY_ERROR);
         }
         //验证成功，生成token

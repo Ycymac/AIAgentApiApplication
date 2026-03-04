@@ -4,6 +4,15 @@ server:
 spring:
   application:
     name: agent
+  datasource:
+    url: jdbc:mysql://127.0.0.1:3306/ai_application?useUnicode=true&characterEncoding=UTF-8&rewriteBatchedStatements=true&allowMultiQueries=true&serverTimezone=Asia/Shanghai
+    username: root
+    password: 206721
+  data:
+    redis:
+      host: 192.168.88.131
+      port: 6379
+      password: 206721
 
 springdoc:
   default-flat-param-object: true
@@ -16,7 +25,7 @@ springdoc:
   group-configs:
     - group: 'default'
       paths-to-match: '/**'
-      packages-to-scan: com.ycy.agent
+      packages-to-scan: com.ycy.aiapplication.agent
 
 knife4j:
   enable: true

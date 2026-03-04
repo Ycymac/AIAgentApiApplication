@@ -33,7 +33,7 @@ springdoc:
   group-configs:
     - group: 'default'
       paths-to-match: '/**'
-      packages-to-scan: com.ycy.application
+      packages-to-scan: com.ycy.aiapplication.user.service
 
 knife4j:
   enable: true

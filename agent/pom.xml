@@ -28,10 +28,10 @@
         <java.version>17</java.version>
     </properties>
     <dependencies>
-        <!--SpringBoot Web服务器相关依赖-->
+        <!-- SpringBoot Web 服务器相关依赖 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter</artifactId>
+            <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
         <!-- SpringBoot 单元测试相关依赖 -->
@@ -40,15 +40,6 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
-
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
-            <scope>test</scope>
-        </dependency>
-
-
-
         <!-- 项目工具包相关依赖 -->
         <dependency>
             <groupId>com.alibaba.fastjson2</groupId>
@@ -60,6 +51,38 @@
             <artifactId>hutool-all</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>com.alibaba</groupId>
+            <artifactId>transmittable-thread-local</artifactId>
+        </dependency>
+
+        <!-- 数据库持久层相关依赖 -->
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-boot-starter</artifactId>
+        </dependency>
+
+        <!--redis依赖-->
+        <dependency>
+            <groupId>org.redisson</groupId>
+            <artifactId>redisson-spring-boot-starter</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
 
         <!-- 接口文档相关依赖 -->
         <dependency>
@@ -68,16 +91,23 @@
         </dependency>
 
         <dependency>
-            <groupId>org.projectlombok</groupId>
-            <artifactId>lombok</artifactId>
-            <optional>true</optional>
+            <groupId>io.github.mouzt</groupId>
+            <artifactId>bizlog-sdk</artifactId>
         </dependency>
+
         <!--Qwen api-->
         <dependency>
             <groupId>com.alibaba</groupId>
             <artifactId>dashscope-sdk-java</artifactId>
             <!-- 请将 'the-latest-version' 替换为最新版本号：https://mvnrepository.com/artifact/com.alibaba/dashscope-sdk-java -->
             <version>2.22.9</version>
+            <exclusions>
+                <exclusion>
+                    <!--排除sl4j防止和lombook干扰-->
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-simple</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <!--导入“兄弟”模块-->
@@ -87,6 +117,8 @@
             <version>0.0.1-SNAPSHOT</version>
         </dependency>
     </dependencies>
+
+
 
 
 </project>
