@@ -7,7 +7,7 @@ import com.alibaba.dashscope.common.Message;
 import com.alibaba.dashscope.common.Role;
 import com.alibaba.dashscope.exception.InputRequiredException;
 import com.alibaba.dashscope.exception.NoApiKeyException;
-import com.ycy.aiapplication.agent.Service.AgentAsk;
+import com.ycy.aiapplication.agent.service.AgentAsk;
 import com.ycy.aiapplication.agent.common.constant.AIPromptConstant;
 import com.ycy.aiapplication.agent.common.enums.AIModelEnum;
 import com.ycy.aiapplication.agent.common.pojo.ApiEvaluationResp;
@@ -18,7 +18,7 @@ import com.ycy.aiapplication.agent.dto.req.InterviewQuestionAskReqDTO;
 import com.ycy.aiapplication.agent.dto.req.ReportGenerationReqDTO;
 import com.ycy.aiapplication.agent.dto.resp.AnswerEvaluationRespDTO;
 import com.ycy.aiapplication.agent.dto.resp.InterviewQuestionAskRespDTO;
-import com.ycy.aiapplication.agent.dto.resp.ReportGenerationRespDTO;
+import com.ycy.aiapplication.agent.dto.AgentInterviewReportDTO;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -27,7 +27,10 @@ import org.springframework.boot.test.context.SpringBootTest;
 import java.util.Arrays;
 import java.util.List;
 
-@SpringBootTest
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = {
+                "spring.autoconfigure.exclude=org.redisson.spring.starter.RedissonAutoConfigurationV2"
+        })
 class AgentApplicationTests {
 
     //因为这是对应的密钥，所以写在配置类当中
@@ -267,7 +270,7 @@ class AgentApplicationTests {
 
         // 5. 调用方法生成面试报告
         try {
-            ReportGenerationRespDTO report = agentAsk.generateInterviewReport(requestParam);
+            AgentInterviewReportDTO report = agentAsk.generateInterviewReportAndRecordName(requestParam).getReportDTO();
 
             // 6. 输出结果验证
             System.out.println("========== 面试报告生成成功 ==========");

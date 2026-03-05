@@ -18,11 +18,12 @@ public class AnswerEvaluationRespDTO {
      */
     private InterviewQuestion question;
 
-    //返回结果不需要提供面试人回答，后续生成报告，我们也无须提供回答，只需要通过每个问题的面评生成报告
+    private String answer;
+
     private ApiEvaluationResp apiResp;
 
     public AnswerEvaluationRespDTO(AnswerEvaluationReqDTO requestParam, ApiEvaluationResp apiResp) {
-
+        this.answer=requestParam.getAnswer();
         this.apiResp = apiResp;
         this.question = requestParam.getQuestion();
     }

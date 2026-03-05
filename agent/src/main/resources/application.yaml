@@ -32,7 +32,10 @@ knife4j:
   setting:
     language: zh_cn
 
-
+app:
+  jwt:
+    secret: AiApplicationSecretKeyForHarmonyOsApp2026
+    expiration: 86400000
 
 ai-application:
   agent:

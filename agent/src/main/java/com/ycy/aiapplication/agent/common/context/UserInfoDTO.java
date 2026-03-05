@@ -1,4 +1,4 @@
-package com.ycy.aiapplication.user.service.common.context;
+package com.ycy.aiapplication.agent.common.context;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -13,7 +13,6 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @Builder
 public class UserInfoDTO {
-
     private Long id;
 
     private String accountId;

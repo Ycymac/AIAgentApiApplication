@@ -1,4 +1,4 @@
-package com.ycy.aiapplication.agent.Service;
+package com.ycy.aiapplication.agent.service;
 
 import com.ycy.aiapplication.agent.dto.req.AnswerEvaluationReqDTO;
 import com.ycy.aiapplication.agent.dto.req.InterviewQuestionAskReqDTO;
@@ -25,7 +25,7 @@ public interface AgentAsk {
 
     List<AnswerEvaluationRespDTO> answersEvaluationByAsync(List<AnswerEvaluationReqDTO>requestParams);
 
-    ReportGenerationRespDTO generateInterviewReport(ReportGenerationReqDTO requestParam);
+    ReportGenerationRespDTO generateInterviewReportAndRecordName(ReportGenerationReqDTO requestParam);
 
 
 

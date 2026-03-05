@@ -127,5 +127,21 @@ public class AIPromptConstant {
                     
                     现在开始生成报告：""";
 
-
+    public static final String RECORD_NAME_GENERATE=
+            """
+                    我将提供面试对象的简历信息JSON。
+                    请根据learningDirection为核心，生成一个简短的面试标题。
+                    
+                    生成规则：
+                    1. 标题用于前端直接展示；
+                    2. 不超过12个汉字；
+                    3. 突出学习方向；
+                    4. 不使用标点符号；
+                    5. 不使用空格；
+                    6. 不使用括号；
+                    7. 不添加解释说明；
+                    8. 只输出标题本身；
+                    9. 不要输出引号；
+                    
+                    现在生成标题：""";
 }

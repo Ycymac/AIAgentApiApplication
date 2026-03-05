@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("api/user/service")
 @RequiredArgsConstructor
-@Tag(name="用户登录注册管理")
+@Tag(name="用户操作管理")
 public class UserServiceController {
 
     private final UserLoginService userLoginService;

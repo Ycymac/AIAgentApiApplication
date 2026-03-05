@@ -1,4 +1,4 @@
-package com.ycy.aiapplication.agent.Service.Impl;
+package com.ycy.aiapplication.agent.service.Impl;
 
 import cn.hutool.core.util.ObjectUtil;
 import cn.hutool.core.util.StrUtil;
@@ -12,7 +12,12 @@ import com.alibaba.dashscope.exception.InputRequiredException;
 import com.alibaba.dashscope.exception.NoApiKeyException;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
-import com.ycy.aiapplication.agent.Service.AgentAsk;
+import com.ycy.aiapplication.agent.common.context.UserContext;
+import com.ycy.aiapplication.agent.common.pojo.IntervieweeForm;
+import com.ycy.aiapplication.agent.dao.entity.InterviewRecordDO;
+import com.ycy.aiapplication.agent.dao.mapper.InterviewRecordDOMapper;
+import com.ycy.aiapplication.agent.dto.resp.ReportGenerationRespDTO;
+import com.ycy.aiapplication.agent.service.AgentAsk;
 import com.ycy.aiapplication.agent.common.constant.AIPromptConstant;
 import com.ycy.aiapplication.agent.common.enums.AIModelEnum;
 import com.ycy.aiapplication.agent.common.pojo.ApiEvaluationResp;
@@ -22,18 +27,19 @@ import com.ycy.aiapplication.agent.dto.req.InterviewQuestionAskReqDTO;
 import com.ycy.aiapplication.agent.dto.req.ReportGenerationReqDTO;
 import com.ycy.aiapplication.agent.dto.resp.AnswerEvaluationRespDTO;
 import com.ycy.aiapplication.agent.dto.resp.InterviewQuestionAskRespDTO;
-import com.ycy.aiapplication.agent.dto.resp.ReportGenerationRespDTO;
+import com.ycy.aiapplication.agent.dto.AgentInterviewReportDTO;
 import com.ycy.aiapplication.framework.exception.ClientException;
 import com.ycy.aiapplication.framework.exception.RemoteException;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.List;
+
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
@@ -57,6 +63,10 @@ public class AgentAskImpl implements AgentAsk {
             new SynchronousQueue<>(),
             new ThreadPoolExecutor.CallerRunsPolicy()
     );
+
+    private final InterviewRecordDOMapper interviewRecordDOMapper;
+
+    private final StringRedisTemplate stringRedisTemplate;
 
 
     @Override
@@ -253,18 +263,56 @@ public class AgentAskImpl implements AgentAsk {
      * @return 报告返回类
      */
     @Override
-    public ReportGenerationRespDTO generateInterviewReport(ReportGenerationReqDTO requestParam) {
+    public ReportGenerationRespDTO generateInterviewReportAndRecordName(ReportGenerationReqDTO requestParam) {
         if(ObjectUtil.isEmpty(requestParam))throw new ClientException("参数为空");
+        IntervieweeForm form = requestParam.getForm();
 
         //将面试人信息进行提取，总结为json形式，投递给AI生成对应的报告
         int finalScore =calculateScore(requestParam.getAnswerEvaluationRespS());
         JSONObject jsonObject = new JSONObject();
-        jsonObject.put("form",requestParam.getForm());
+        jsonObject.put("form", form);
         jsonObject.put("evaluations",requestParam.getAnswerEvaluationRespS());
         jsonObject.put("interviewPoint",finalScore);
 
+        //通过CompletableFuture并行执行
+        CompletableFuture<AgentInterviewReportDTO> reportFuture = CompletableFuture
+                .supplyAsync(() -> generateInterviewReport(jsonObject, finalScore), executorService);
 
+        CompletableFuture<String> recordNameFuture = CompletableFuture
+                .supplyAsync(() -> generateRecordName(form), executorService);
+
+        // 使用 thenCombine 合并两个结果
+        return reportFuture.thenCombine(recordNameFuture, (apiInterviewReport, recordName) -> {
+            //删除分数，因为报告当中有了
+            jsonObject.remove("interviewPoint");
+            Date now = new Date();
+            InterviewRecordDO recordDO = InterviewRecordDO.builder()
+                    //名称
+                    .recordName(recordName)
+                    .userId(UserContext.getId())//用户 id
+                    .interviewProcessRecord(jsonObject.toJSONString())//面试记录
+                    .reportRecord(JSON.toJSONString(apiInterviewReport))//报告
+                    .date(now)
+                    .deleted(false)
+                    .build();
+            //数据库存储：通过名称 + 日期进行区分
+            interviewRecordDOMapper.insert(recordDO);
+            Long id= recordDO.getId();
+
+
+
+            return ReportGenerationRespDTO.builder()
+                    .date(now)
+                    .recordName(recordName)
+                    .reportDTO(apiInterviewReport)
+                    .build();
+        }).join();
+
+
+    }
+    private AgentInterviewReportDTO generateInterviewReport(JSONObject jsonObject ,int finalScore){
         Generation generation = new Generation();
+        AgentInterviewReportDTO agentInterviewReport;
 
         Message systemMsg = Message.builder()
                 .role(Role.SYSTEM.getValue())
@@ -282,13 +330,12 @@ public class AgentAskImpl implements AgentAsk {
                 .resultFormat(GenerationParam.ResultFormat.MESSAGE)
                 .build();
 
-        ReportGenerationRespDTO apiInterviewReport;
         try{
             GenerationResult result = generation.call(param);
             String answerJson=result.getOutput().getChoices().get(0).getMessage().getContent();
             log.info("消息内容：{}",answerJson);
-             apiInterviewReport= JSONObject.parseObject(answerJson, ReportGenerationRespDTO.class);
-             apiInterviewReport.setInterviewPoint(finalScore);
+            agentInterviewReport= JSONObject.parseObject(answerJson, AgentInterviewReportDTO.class);
+            agentInterviewReport.setInterviewPoint(finalScore);
 
         }catch (Exception e){
 
@@ -303,8 +350,54 @@ public class AgentAskImpl implements AgentAsk {
 
             throw new ClientException("系统异常，请稍后再试");
         }
+        return agentInterviewReport;
+    }
 
-        return apiInterviewReport;
+    /**
+     * 生成报告名字用于后端存储、前端显示
+     * @return
+     */
+    private String generateRecordName(IntervieweeForm form){
+        String json = JSON.toJSONString(form);
+        String recordName;
+
+        Generation generation = new Generation();
+        Message systemMsg = Message.builder()
+                .role(Role.SYSTEM.getValue())
+                .content(AIPromptConstant.SYSTEM_ROLE_CONTENT)
+                .build();
+        Message userMsg = Message.builder()
+                .role(Role.USER.getValue())
+                .content(AIPromptConstant.RECORD_NAME_GENERATE + json)
+                .build();
+        GenerationParam param = GenerationParam.builder()
+                .apiKey(apiKey)
+                .model(AIModelEnum.SUMMARY_GENERATE_AI_MODEL.getModel())
+                .messages(Arrays.asList(systemMsg, userMsg))
+                .resultFormat(GenerationParam.ResultFormat.MESSAGE)
+                .build();
+
+        try{
+            GenerationResult result = generation.call(param);
+            String answerString=result.getOutput().getChoices().get(0).getMessage().getContent();
+            log.info("消息内容：{}",answerString);
+            recordName=answerString;
+
+        }catch (Exception e){
+
+            if(e instanceof NoApiKeyException)
+                log.error("没有apikey，信息：{}",e.getMessage());
+            else if (e instanceof ApiException)
+                log.error("api出现错误，信息：{}",e.getMessage());
+            else if (e instanceof InputRequiredException)
+                log.error("需要输入，信息：{}",e.getMessage());
+            else
+                log.error("其他错误，信息{}",e.getMessage());
+
+            throw new ClientException("系统异常，请稍后再试");
+        }
+        return recordName;
+
     }
 }
 
