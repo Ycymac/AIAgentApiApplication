@@ -12,10 +12,7 @@ import com.ycy.aiapplication.framework.web.Results;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
@@ -27,12 +24,12 @@ public class AgentController {
     private final AgentAskImpl agentAsk;
 
     @Operation(summary = "生成问题")
-    @PostMapping("/questions")
+    @GetMapping("/questions")
     public Result<InterviewQuestionAskRespDTO> generateInterviewQuestion(@RequestBody InterviewQuestionAskReqDTO requestParam){
         return Results.success(agentAsk.giveInterviewQuestions(requestParam));
     }
     @Operation(summary = "评估问题")
-    @PostMapping("/evaluations")
+    @GetMapping("/evaluations")
     public Result<List<AnswerEvaluationRespDTO>> generateAnswerEvaluation(@RequestBody AnswerEvaluationReqDTO requestParam){
         //问题问答记录，无需保存
 
@@ -41,7 +38,7 @@ public class AgentController {
     }
 
     @Operation(summary = "生成报告")
-    @PostMapping("/report")
+    @GetMapping("/report")
     public Result<ReportGenerationRespDTO> generateReport(@RequestBody ReportGenerationReqDTO requestParam){
         return Results.success(agentAsk.generateInterviewReportAndRecordName(requestParam));
     }

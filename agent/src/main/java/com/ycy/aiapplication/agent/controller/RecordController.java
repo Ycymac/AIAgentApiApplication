@@ -11,10 +11,7 @@ import com.ycy.aiapplication.framework.web.Results;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
@@ -22,7 +19,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/record/service")
 @RequiredArgsConstructor
-public class RecordServiceController {
+public class RecordController {
 
     private final RecordService recordService;
 
@@ -39,7 +36,7 @@ public class RecordServiceController {
     }
 
     @Operation(summary = "显示点击的当前记录")
-    @PostMapping()
+    @GetMapping("/click/record")
     public Result<InterviewRecordDO> searchInterviewRecordById(@RequestBody SearchInterviewRecordByIdReqDTO requestParam){
         return Results.success(recordService.searchInterviewRecordById(requestParam.getId()));
     }
