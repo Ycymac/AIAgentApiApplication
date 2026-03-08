@@ -27,21 +27,6 @@ public class AIPromptConstant {
             8. 不允许新增字段；
             9. questionDescription必须是字符串类型。""";
 
-   /* public static final String QUESTION_ASK1 =
-            "请根据上方简历生成15道面试问题，从易到难。" +
-                    "必须严格按照以下JSON数组格式返回，不允许添加任何额外说明或文本：" +
-                    "[{" +
-                    "\"level\": 0," +
-                    "\"questionDescription\": \"问题描述\"" +
-                    "}]" +
-                    "要求：" +
-                    "1. 返回结果必须是合法JSON数组；" +
-                    "2. 只能输出JSON；" +
-                    "3. 不要使用markdown；" +
-                    "4. 不要添加解释说明；" +
-                    "5. level 取值只能是 0,1,2；表示从易到难" +
-                    "6. 总共返回15个对象。";*/
-
     public static final String ANSWER_POINT_GIVE =
             """
                     请按照真实面试标准评分。
@@ -142,6 +127,7 @@ public class AIPromptConstant {
                     7. 不添加解释说明；
                     8. 只输出标题本身；
                     9. 不要输出引号；
+                    10.必须以 面试 两字结尾
                     
                     现在生成标题：""";
 }

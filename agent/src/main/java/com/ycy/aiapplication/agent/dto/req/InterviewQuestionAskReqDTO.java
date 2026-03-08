@@ -1,6 +1,7 @@
 package com.ycy.aiapplication.agent.dto.req;
 
 import com.ycy.aiapplication.agent.common.pojo.IntervieweeForm;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -15,7 +16,9 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @Builder
 public class InterviewQuestionAskReqDTO {
-
+    @Schema(
+            description = "面试表格"
+    )
     private IntervieweeForm form;
 
     public String getFormDescription(){

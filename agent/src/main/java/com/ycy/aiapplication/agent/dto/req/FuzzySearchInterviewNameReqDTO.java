@@ -1,21 +1,21 @@
 package com.ycy.aiapplication.agent.dto.req;
 
-import com.ycy.aiapplication.agent.common.pojo.QuestionWithAnswer;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.util.List;
-
 @Data
-@AllArgsConstructor
 @NoArgsConstructor
+@AllArgsConstructor
 @Builder
-public class AnswerEvaluationReqDTO {
+public class FuzzySearchInterviewNameReqDTO {
     @Schema(
-            description = "所有的问题和回答"
+            description = "模糊查询用名称",
+            example = "Java后端开发面试"
+
     )
-    private List<QuestionWithAnswer> questionWithAnswers;
+    String name;
+
 }

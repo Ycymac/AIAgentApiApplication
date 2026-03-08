@@ -48,6 +48,7 @@ public class UserLoginServiceImpl implements UserLoginService {
             log.error("账户密码校验异常，登录账户：{},查询到的账户：{}",accountId, Optional.ofNullable(userAccountDO).map(UserAccountDO::getAccountId).orElse("未查询到对应账户"));
             throw new ClientException(BaseErrorCode.PASSWORD_VERIFY_ERROR);
         }
+        log.info("校验成功，生成jwt令牌");
         //验证成功，生成token
         String token = jwtUtil.generateToken(accountId);
         LoginRespDTO loginRespDTO = LoginRespDTO.builder()

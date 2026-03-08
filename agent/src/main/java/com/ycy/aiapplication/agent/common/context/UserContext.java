@@ -12,10 +12,11 @@ public final class UserContext {
     public static  void setUser(UserInfoDTO user){USER_THREAD_LOCAL.set(user);}
 
     public static Long getId(){
-      /*  UserInfoDTO userInfoDTO = USER_THREAD_LOCAL.get();
-        return Optional.ofNullable(userInfoDTO).map(UserInfoDTO::getId).orElse(null);*/
-        //测试用，使用固定替代
-        return 2028780128997244929L;
+        UserInfoDTO userInfoDTO = USER_THREAD_LOCAL.get();
+        //这里测试使用
+        return Optional.ofNullable(userInfoDTO).map(UserInfoDTO::getId).orElse(2028780128997244929L);
+       /* //测试用，使用固定替代
+        return 2028780128997244929L;*/
     }
 
     public static String getAccountId(){

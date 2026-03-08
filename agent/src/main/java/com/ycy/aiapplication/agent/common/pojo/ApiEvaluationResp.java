@@ -1,5 +1,6 @@
 package com.ycy.aiapplication.agent.common.pojo;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -16,18 +17,38 @@ public class ApiEvaluationResp {
     /**
      * 面试官评价
      */
+    @Schema(
+            description = "api评价",
+            example = "回答基本正确，对核心概念理解清晰，但较为深入的部分回答的较为模糊。"
+
+    )
     private String comment;
     /**
      * 完整度 0-10
      */
+    @Schema(
+            description = "完整度",
+            example = "10"
+
+    )
     private int completeness;
     /**
      * 详细度 0-10
      */
+    @Schema(
+            description = "详细度",
+            example = "9"
+
+    )
     private int levelOfDetail;
     /**
      * 准确度 0-10
      */
+    @Schema(
+            description = "准确度",
+            example = "10"
+
+    )
     private int accuracy;
 
     @Override

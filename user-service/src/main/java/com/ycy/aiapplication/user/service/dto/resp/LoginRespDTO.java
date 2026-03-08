@@ -28,8 +28,8 @@ public class LoginRespDTO {
      * 昵称
      */
     @Schema(
-            description = "账户密码",
-            example = "ycy2006721"
+            description = "账户昵称",
+            example = "ycy"
     )
     private String nickName;
 

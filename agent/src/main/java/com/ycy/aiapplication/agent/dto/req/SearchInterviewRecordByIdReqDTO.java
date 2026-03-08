@@ -1,21 +1,20 @@
 package com.ycy.aiapplication.agent.dto.req;
 
-import com.ycy.aiapplication.agent.common.pojo.QuestionWithAnswer;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.util.List;
-
 @Data
-@AllArgsConstructor
 @NoArgsConstructor
+@AllArgsConstructor
 @Builder
-public class AnswerEvaluationReqDTO {
+public class SearchInterviewRecordByIdReqDTO {
     @Schema(
-            description = "所有的问题和回答"
+            description = "面试记录数据库id",
+            example = "2029419678962561026"
+
     )
-    private List<QuestionWithAnswer> questionWithAnswers;
+    private String id;
 }

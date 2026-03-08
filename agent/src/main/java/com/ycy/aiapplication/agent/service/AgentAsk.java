@@ -1,6 +1,6 @@
 package com.ycy.aiapplication.agent.service;
 
-import com.ycy.aiapplication.agent.dto.req.AnswerEvaluationReqDTO;
+import com.ycy.aiapplication.agent.common.pojo.QuestionWithAnswer;
 import com.ycy.aiapplication.agent.dto.req.InterviewQuestionAskReqDTO;
 import com.ycy.aiapplication.agent.dto.req.ReportGenerationReqDTO;
 import com.ycy.aiapplication.agent.dto.resp.AnswerEvaluationRespDTO;
@@ -21,9 +21,9 @@ public interface AgentAsk {
 
     InterviewQuestionAskRespDTO giveInterviewQuestions(InterviewQuestionAskReqDTO requestParam);
 
-    AnswerEvaluationRespDTO singleQuestionAnswerEvaluation(AnswerEvaluationReqDTO requestParam);
+    AnswerEvaluationRespDTO singleQuestionAnswerEvaluation(QuestionWithAnswer requestParam);
 
-    List<AnswerEvaluationRespDTO> answersEvaluationByAsync(List<AnswerEvaluationReqDTO>requestParams);
+    List<AnswerEvaluationRespDTO> answersEvaluationByAsync(List<QuestionWithAnswer>requestParams);
 
     ReportGenerationRespDTO generateInterviewReportAndRecordName(ReportGenerationReqDTO requestParam);
 

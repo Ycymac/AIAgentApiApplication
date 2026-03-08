@@ -12,6 +12,7 @@ import com.alibaba.dashscope.exception.InputRequiredException;
 import com.alibaba.dashscope.exception.NoApiKeyException;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONObject;
+import com.ycy.aiapplication.agent.common.constant.AgentRedisConstant;
 import com.ycy.aiapplication.agent.common.context.UserContext;
 import com.ycy.aiapplication.agent.common.pojo.IntervieweeForm;
 import com.ycy.aiapplication.agent.dao.entity.InterviewRecordDO;
@@ -22,7 +23,7 @@ import com.ycy.aiapplication.agent.common.constant.AIPromptConstant;
 import com.ycy.aiapplication.agent.common.enums.AIModelEnum;
 import com.ycy.aiapplication.agent.common.pojo.ApiEvaluationResp;
 import com.ycy.aiapplication.agent.common.pojo.InterviewQuestion;
-import com.ycy.aiapplication.agent.dto.req.AnswerEvaluationReqDTO;
+import com.ycy.aiapplication.agent.common.pojo.QuestionWithAnswer;
 import com.ycy.aiapplication.agent.dto.req.InterviewQuestionAskReqDTO;
 import com.ycy.aiapplication.agent.dto.req.ReportGenerationReqDTO;
 import com.ycy.aiapplication.agent.dto.resp.AnswerEvaluationRespDTO;
@@ -136,7 +137,7 @@ public class AgentAskImpl implements AgentAsk {
      * 为了方便测试这里使用public
      */
     @Override
-    public AnswerEvaluationRespDTO singleQuestionAnswerEvaluation(AnswerEvaluationReqDTO requestParam) {
+    public AnswerEvaluationRespDTO singleQuestionAnswerEvaluation(QuestionWithAnswer requestParam) {
        //检验参数
         InterviewQuestion question = requestParam.getQuestion();
         String answer = requestParam.getAnswer();
@@ -195,9 +196,10 @@ public class AgentAskImpl implements AgentAsk {
     }
 
     @Override
-    public List<AnswerEvaluationRespDTO> answersEvaluationByAsync(List<AnswerEvaluationReqDTO> requestParams) {
+    public List<AnswerEvaluationRespDTO> answersEvaluationByAsync(List<QuestionWithAnswer> requestParams) {
         //边界检查
-        if(requestParams == null || requestParams.size() != 15)
+        //|| requestParams.size() != 15 ，测试所以不加上限制
+        if(requestParams == null )
             throw new ClientException("评估用参数不足！请检查");
        //为了防止出现线程安全问题，每个问题独立返回结果，最后进行合并
         List<CompletableFuture<AnswerEvaluationRespDTO>> evaluationTasks = requestParams.stream()
@@ -286,21 +288,29 @@ public class AgentAskImpl implements AgentAsk {
             //删除分数，因为报告当中有了
             jsonObject.remove("interviewPoint");
             Date now = new Date();
+            Long userId = UserContext.getId();
             InterviewRecordDO recordDO = InterviewRecordDO.builder()
                     //名称
                     .recordName(recordName)
-                    .userId(UserContext.getId())//用户 id
+                    .userId(userId)//用户 id
                     .interviewProcessRecord(jsonObject.toJSONString())//面试记录
                     .reportRecord(JSON.toJSONString(apiInterviewReport))//报告
                     .date(now)
                     .deleted(false)
                     .build();
+
             //数据库存储：通过名称 + 日期进行区分
             interviewRecordDOMapper.insert(recordDO);
+            //后续引入消息队列进行异步解耦
+            //redis当中进行缓存记录对应id
+            String zSetKey = String.format(AgentRedisConstant.INTERVIEW_RECORD_ID_WITH_NAME_CACHE_KEY, userId);
             Long id= recordDO.getId();
+            //使用分隔符防止记录名称当中出现下划线
+            String idAndName = id.toString() + "|" + recordName;
 
+            stringRedisTemplate.opsForZSet().add(zSetKey, idAndName,now.getTime());
 
-
+            //这里我们只返回对应的报告，但是我们在数据库存储的是包括面试对象“简历”+所有问题+问题对应回答+总结的完整记录
             return ReportGenerationRespDTO.builder()
                     .date(now)
                     .recordName(recordName)
@@ -355,7 +365,6 @@ public class AgentAskImpl implements AgentAsk {
 
     /**
      * 生成报告名字用于后端存储、前端显示
-     * @return
      */
     private String generateRecordName(IntervieweeForm form){
         String json = JSON.toJSONString(form);
@@ -372,7 +381,7 @@ public class AgentAskImpl implements AgentAsk {
                 .build();
         GenerationParam param = GenerationParam.builder()
                 .apiKey(apiKey)
-                .model(AIModelEnum.SUMMARY_GENERATE_AI_MODEL.getModel())
+                .model(AIModelEnum.NAME_GENERATE_AI_MODEL.getModel())
                 .messages(Arrays.asList(systemMsg, userMsg))
                 .resultFormat(GenerationParam.ResultFormat.MESSAGE)
                 .build();

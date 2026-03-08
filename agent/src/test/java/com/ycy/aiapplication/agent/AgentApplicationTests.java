@@ -13,7 +13,7 @@ import com.ycy.aiapplication.agent.common.enums.AIModelEnum;
 import com.ycy.aiapplication.agent.common.pojo.ApiEvaluationResp;
 import com.ycy.aiapplication.agent.common.pojo.InterviewQuestion;
 import com.ycy.aiapplication.agent.common.pojo.IntervieweeForm;
-import com.ycy.aiapplication.agent.dto.req.AnswerEvaluationReqDTO;
+import com.ycy.aiapplication.agent.common.pojo.QuestionWithAnswer;
 import com.ycy.aiapplication.agent.dto.req.InterviewQuestionAskReqDTO;
 import com.ycy.aiapplication.agent.dto.req.ReportGenerationReqDTO;
 import com.ycy.aiapplication.agent.dto.resp.AnswerEvaluationRespDTO;
@@ -100,7 +100,7 @@ class AgentApplicationTests {
                 .level(0)
                 .questionDescription("String是基本数据类型吗？Java当中有哪些基本数据类型？")
                 .build();
-        AnswerEvaluationReqDTO requestParam = AnswerEvaluationReqDTO.builder()
+        QuestionWithAnswer requestParam = QuestionWithAnswer.builder()
                 .question(question)
                 .answer("不是，String是Java当中的引用类型。java当中的基本数据类型有 byte、short、int、long、double、float、char、boolean，所有的基本数据类型都有对应的包装类")
                 .build();
