@@ -24,12 +24,12 @@ public class AgentController {
     private final AgentAskImpl agentAsk;
 
     @Operation(summary = "生成问题")
-    @GetMapping("/questions")
+    @PostMapping("/questions")
     public Result<InterviewQuestionAskRespDTO> generateInterviewQuestion(@RequestBody InterviewQuestionAskReqDTO requestParam){
         return Results.success(agentAsk.giveInterviewQuestions(requestParam));
     }
     @Operation(summary = "评估问题")
-    @GetMapping("/evaluations")
+    @PostMapping("/evaluations")
     public Result<List<AnswerEvaluationRespDTO>> generateAnswerEvaluation(@RequestBody AnswerEvaluationReqDTO requestParam){
         //问题问答记录，无需保存
 
@@ -38,7 +38,7 @@ public class AgentController {
     }
 
     @Operation(summary = "生成报告")
-    @GetMapping("/report")
+    @PostMapping("/report")
     public Result<ReportGenerationRespDTO> generateReport(@RequestBody ReportGenerationReqDTO requestParam){
         return Results.success(agentAsk.generateInterviewReportAndRecordName(requestParam));
     }

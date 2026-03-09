@@ -1,8 +1,6 @@
 package com.ycy.aiapplication.agent.dao.entity;
 
-import com.baomidou.mybatisplus.annotation.TableId;
-import com.baomidou.mybatisplus.annotation.TableLogic;
-import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.*;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -34,9 +32,13 @@ public class InterviewRecordDO {
      */
     private String reportRecord;
     /**
-     * 面试时间
+     * 面试创建时间
+     * 使用配置进行自动注入
      */
-    private Date date;
+    @TableField(fill= FieldFill.INSERT)
+    private Date createTime;
+
     @TableLogic
-    private boolean deleted;
+    @TableField(fill = FieldFill.INSERT)
+    private Boolean deleted;
 }

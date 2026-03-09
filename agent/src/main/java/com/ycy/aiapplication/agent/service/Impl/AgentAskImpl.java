@@ -287,7 +287,7 @@ public class AgentAskImpl implements AgentAsk {
         return reportFuture.thenCombine(recordNameFuture, (apiInterviewReport, recordName) -> {
             //删除分数，因为报告当中有了
             jsonObject.remove("interviewPoint");
-            Date now = new Date();
+            //自动注入创建时间
             Long userId = UserContext.getId();
             InterviewRecordDO recordDO = InterviewRecordDO.builder()
                     //名称
@@ -295,8 +295,6 @@ public class AgentAskImpl implements AgentAsk {
                     .userId(userId)//用户 id
                     .interviewProcessRecord(jsonObject.toJSONString())//面试记录
                     .reportRecord(JSON.toJSONString(apiInterviewReport))//报告
-                    .date(now)
-                    .deleted(false)
                     .build();
 
             //数据库存储：通过名称 + 日期进行区分
@@ -305,6 +303,7 @@ public class AgentAskImpl implements AgentAsk {
             //redis当中进行缓存记录对应id
             String zSetKey = String.format(AgentRedisConstant.INTERVIEW_RECORD_ID_WITH_NAME_CACHE_KEY, userId);
             Long id= recordDO.getId();
+            Date now=recordDO.getCreateTime();
             //使用分隔符防止记录名称当中出现下划线
             String idAndName = id.toString() + "|" + recordName;
 

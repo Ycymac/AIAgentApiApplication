@@ -30,7 +30,7 @@ public class RecordController {
     }
 
     @Operation(summary="记录名称显示")
-    @PostMapping("/search/record")
+    @GetMapping("/search/record")
     public Result<List<SearchInterviewNameAndIdRespDTO>> searchInterviewNameAndId(){
         return Results.success(recordService.searchInterviewNameAndId());
     }
