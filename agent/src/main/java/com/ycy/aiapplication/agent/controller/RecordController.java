@@ -36,7 +36,7 @@ public class RecordController {
     }
 
     @Operation(summary = "显示点击的当前记录")
-    @GetMapping("/click/record")
+    @PostMapping("/click/record")
     public Result<InterviewRecordDO> searchInterviewRecordById(@RequestBody SearchInterviewRecordByIdReqDTO requestParam){
         return Results.success(recordService.searchInterviewRecordById(requestParam.getId()));
     }
