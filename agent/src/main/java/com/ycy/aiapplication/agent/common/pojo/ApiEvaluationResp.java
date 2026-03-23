@@ -51,13 +51,29 @@ public class ApiEvaluationResp {
     )
     private int accuracy;
 
+    @Schema(
+            description = "逻辑度",
+            example = "8"
+
+    )
+    private int logic;
+
+    @Schema(
+            description = "表达能力",
+            example = "7"
+
+    )
+    private int expressionAbility;
+
     @Override
     public String toString() {
         return "ApiEvaluationResp{" +
                 "comment='" + comment + '\'' +
-                "accuracy=" + accuracy +
+                ", accuracy=" + accuracy +
                 ", completeness=" + completeness +
                 ", levelOfDetail=" + levelOfDetail +
+                ", logic=" + logic +
+                ", expressionAbility=" + expressionAbility +
                 '}';
     }
 }

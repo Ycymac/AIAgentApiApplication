@@ -29,6 +29,7 @@ import com.ycy.aiapplication.agent.dto.req.ReportGenerationReqDTO;
 import com.ycy.aiapplication.agent.dto.resp.AnswerEvaluationRespDTO;
 import com.ycy.aiapplication.agent.dto.resp.InterviewQuestionAskRespDTO;
 import com.ycy.aiapplication.agent.dto.AgentInterviewReportDTO;
+import com.ycy.aiapplication.agent.dto.InterviewDimensionScoreDTO;
 import com.ycy.aiapplication.framework.exception.ClientException;
 import com.ycy.aiapplication.framework.exception.RemoteException;
 
@@ -163,7 +164,7 @@ public class AgentAskImpl implements AgentAsk {
                 .build();
         Message userMsg = Message.builder()
                 .role(Role.USER.getValue())
-                .content(json + AIPromptConstant.ANSWER_POINT_GIVE)
+                .content(json + AIPromptConstant.ANSWER_POINT_GIVE_V2)
                 .build();
         GenerationParam param = GenerationParam.builder()
                 .apiKey(apiKey)
@@ -178,6 +179,7 @@ public class AgentAskImpl implements AgentAsk {
             String answerJson=result.getOutput().getChoices().get(0).getMessage().getContent();
             log.info("消息内容：{}",answerJson);
             apiEvaluationResp = JSONObject.parseObject(answerJson, ApiEvaluationResp.class);
+            normalizeEvaluationResp(apiEvaluationResp);
 
         }catch (Exception e){
 
@@ -232,31 +234,55 @@ public class AgentAskImpl implements AgentAsk {
      * @param list 所有回答返回的评测
      * @return 整体分数
      */
-    private  int calculateScore(List<AnswerEvaluationRespDTO>list){
-        double totalScore = 0;
+    private InterviewDimensionScoreDTO calculateDimensionScore(List<AnswerEvaluationRespDTO> list){
+        double totalAccuracyScore = 0;
+        double totalCompletenessScore = 0;
+        double totalLevelOfDetailScore = 0;
+        double totalLogicScore = 0;
+        double totalExpressionAbilityScore = 0;
         double totalWeight = 0;
 
         for (AnswerEvaluationRespDTO dto : list) {
-            ApiEvaluationResp r = dto.getApiResp();
-            InterviewQuestion q = dto.getQuestion();
+            ApiEvaluationResp apiResp = dto.getApiResp();
+            InterviewQuestion question = dto.getQuestion();
 
-            double baseScore =
-                    r.getAccuracy() * 0.5 +
-                            r.getCompleteness() * 0.25 +
-                            r.getLevelOfDetail() * 0.25;
-
-            double weight = switch (q.getLevel()) {
+            double weight = switch (question.getLevel()) {
                 case 0 -> 1.0;
                 case 1 -> 1.2;
                 case 2 -> 1.5;
                 default -> 1.0;
             };
 
-            totalScore += baseScore * weight;
+            totalAccuracyScore += apiResp.getAccuracy() * weight;
+            totalCompletenessScore += apiResp.getCompleteness() * weight;
+            totalLevelOfDetailScore += apiResp.getLevelOfDetail() * weight;
+            totalLogicScore += apiResp.getLogic() * weight;
+            totalExpressionAbilityScore += apiResp.getExpressionAbility() * weight;
             totalWeight += weight;
         }
 
-       return  (int) Math.round((totalScore / totalWeight) * 10);
+        int accuracyScore = normalizeTotalScore(totalAccuracyScore / totalWeight);
+        int completenessScore = normalizeTotalScore(totalCompletenessScore / totalWeight);
+        int levelOfDetailScore = normalizeTotalScore(totalLevelOfDetailScore / totalWeight);
+        int logicScore = normalizeTotalScore(totalLogicScore / totalWeight);
+        int expressionAbilityScore = normalizeTotalScore(totalExpressionAbilityScore / totalWeight);
+
+        int interviewPoint = (int) Math.round((
+                accuracyScore * 0.35 +
+                        completenessScore * 0.20 +
+                        levelOfDetailScore * 0.15 +
+                        logicScore * 0.15 +
+                        expressionAbilityScore * 0.15
+        ) * 10);
+
+        return InterviewDimensionScoreDTO.builder()
+                .interviewPoint(interviewPoint)
+                .accuracyScore(accuracyScore)
+                .completenessScore(completenessScore)
+                .levelOfDetailScore(levelOfDetailScore)
+                .logicScore(logicScore)
+                .expressionAbilityScore(expressionAbilityScore)
+                .build();
     }
 
     /**
@@ -270,15 +296,20 @@ public class AgentAskImpl implements AgentAsk {
         IntervieweeForm form = requestParam.getForm();
 
         //将面试人信息进行提取，总结为json形式，投递给AI生成对应的报告
-        int finalScore =calculateScore(requestParam.getAnswerEvaluationRespS());
+        InterviewDimensionScoreDTO dimensionScoreDTO = calculateDimensionScore(requestParam.getAnswerEvaluationRespS());
         JSONObject jsonObject = new JSONObject();
         jsonObject.put("form", form);
         jsonObject.put("evaluations",requestParam.getAnswerEvaluationRespS());
-        jsonObject.put("interviewPoint",finalScore);
+        jsonObject.put("interviewPoint",dimensionScoreDTO.getInterviewPoint());
+        jsonObject.put("accuracyScore",dimensionScoreDTO.getAccuracyScore());
+        jsonObject.put("completenessScore",dimensionScoreDTO.getCompletenessScore());
+        jsonObject.put("levelOfDetailScore",dimensionScoreDTO.getLevelOfDetailScore());
+        jsonObject.put("logicScore",dimensionScoreDTO.getLogicScore());
+        jsonObject.put("expressionAbilityScore",dimensionScoreDTO.getExpressionAbilityScore());
 
         //通过CompletableFuture并行执行
         CompletableFuture<AgentInterviewReportDTO> reportFuture = CompletableFuture
-                .supplyAsync(() -> generateInterviewReport(jsonObject, finalScore), executorService);
+                .supplyAsync(() -> generateInterviewReport(jsonObject, dimensionScoreDTO), executorService);
 
         CompletableFuture<String> recordNameFuture = CompletableFuture
                 .supplyAsync(() -> generateRecordName(form), executorService);
@@ -287,6 +318,11 @@ public class AgentAskImpl implements AgentAsk {
         return reportFuture.thenCombine(recordNameFuture, (apiInterviewReport, recordName) -> {
             //删除分数，因为报告当中有了
             jsonObject.remove("interviewPoint");
+            jsonObject.remove("accuracyScore");
+            jsonObject.remove("completenessScore");
+            jsonObject.remove("levelOfDetailScore");
+            jsonObject.remove("logicScore");
+            jsonObject.remove("expressionAbilityScore");
             //自动注入创建时间
             Long userId = UserContext.getId();
             InterviewRecordDO recordDO = InterviewRecordDO.builder()
@@ -298,6 +334,11 @@ public class AgentAskImpl implements AgentAsk {
                     .build();
 
             //数据库存储：通过名称 + 日期进行区分
+            recordDO.setAccuracyScore(dimensionScoreDTO.getAccuracyScore());
+            recordDO.setCompletenessScore(dimensionScoreDTO.getCompletenessScore());
+            recordDO.setLevelOfDetailScore(dimensionScoreDTO.getLevelOfDetailScore());
+            recordDO.setLogicScore(dimensionScoreDTO.getLogicScore());
+            recordDO.setExpressionAbilityScore(dimensionScoreDTO.getExpressionAbilityScore());
             interviewRecordDOMapper.insert(recordDO);
             //后续引入消息队列进行异步解耦
             //redis当中进行缓存记录对应id
@@ -319,7 +360,7 @@ public class AgentAskImpl implements AgentAsk {
 
 
     }
-    private AgentInterviewReportDTO generateInterviewReport(JSONObject jsonObject ,int finalScore){
+    private AgentInterviewReportDTO generateInterviewReport(JSONObject jsonObject , InterviewDimensionScoreDTO dimensionScoreDTO){
         Generation generation = new Generation();
         AgentInterviewReportDTO agentInterviewReport;
 
@@ -329,7 +370,7 @@ public class AgentAskImpl implements AgentAsk {
                 .build();
         Message userMsg = Message.builder()
                 .role(Role.USER.getValue())
-                .content(AIPromptConstant.SUMMARY_ASK + jsonObject.toJSONString())
+                .content(AIPromptConstant.SUMMARY_ASK_V2 + jsonObject.toJSONString())
                 .build();
 
         GenerationParam param = GenerationParam.builder()
@@ -344,7 +385,12 @@ public class AgentAskImpl implements AgentAsk {
             String answerJson=result.getOutput().getChoices().get(0).getMessage().getContent();
             log.info("消息内容：{}",answerJson);
             agentInterviewReport= JSONObject.parseObject(answerJson, AgentInterviewReportDTO.class);
-            agentInterviewReport.setInterviewPoint(finalScore);
+            agentInterviewReport.setInterviewPoint(dimensionScoreDTO.getInterviewPoint());
+            agentInterviewReport.setAccuracyScore(dimensionScoreDTO.getAccuracyScore());
+            agentInterviewReport.setCompletenessScore(dimensionScoreDTO.getCompletenessScore());
+            agentInterviewReport.setLevelOfDetailScore(dimensionScoreDTO.getLevelOfDetailScore());
+            agentInterviewReport.setLogicScore(dimensionScoreDTO.getLogicScore());
+            agentInterviewReport.setExpressionAbilityScore(dimensionScoreDTO.getExpressionAbilityScore());
 
         }catch (Exception e){
 
@@ -360,6 +406,22 @@ public class AgentAskImpl implements AgentAsk {
             throw new ClientException("系统异常，请稍后再试");
         }
         return agentInterviewReport;
+    }
+
+    private void normalizeEvaluationResp(ApiEvaluationResp apiEvaluationResp) {
+        apiEvaluationResp.setAccuracy(normalizeSingleScore(apiEvaluationResp.getAccuracy()));
+        apiEvaluationResp.setCompleteness(normalizeSingleScore(apiEvaluationResp.getCompleteness()));
+        apiEvaluationResp.setLevelOfDetail(normalizeSingleScore(apiEvaluationResp.getLevelOfDetail()));
+        apiEvaluationResp.setLogic(normalizeSingleScore(apiEvaluationResp.getLogic()));
+        apiEvaluationResp.setExpressionAbility(normalizeSingleScore(apiEvaluationResp.getExpressionAbility()));
+    }
+
+    private int normalizeSingleScore(int score) {
+        return Math.max(0, Math.min(score, 10));
+    }
+
+    private int normalizeTotalScore(double score) {
+        return normalizeSingleScore((int) Math.round(score));
     }
 
     /**

@@ -6,28 +6,40 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * 报告生成返回类
+ * 面试五维总分与综合总分
  */
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
 @Builder
-public class AgentInterviewReportDTO {
+public class InterviewDimensionScoreDTO {
     /**
-     * 面试对应的总分数，0-100分
+     * 综合得分，0-100
      */
     private int interviewPoint;
+
     /**
-     * 总结报告，对面试人的整体情况进行评价
+     * 准确度总分，10分制
      */
     private int accuracyScore;
-    private int completenessScore;
-    private int levelOfDetailScore;
-    private int logicScore;
-    private int expressionAbilityScore;
-    private String summaryReport;
+
     /**
-     * 建议报告，对面试人的不足进行建议
+     * 完整度总分，10分制
      */
-    private String adviceReport;
+    private int completenessScore;
+
+    /**
+     * 详细度总分，10分制
+     */
+    private int levelOfDetailScore;
+
+    /**
+     * 逻辑度总分，10分制
+     */
+    private int logicScore;
+
+    /**
+     * 表达能力总分，10分制
+     */
+    private int expressionAbilityScore;
 }

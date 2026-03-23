@@ -31,6 +31,16 @@ public class InterviewRecordDO {
      * 面试总评
      */
     private String reportRecord;
+
+    private Integer accuracyScore;
+
+    private Integer completenessScore;
+
+    private Integer levelOfDetailScore;
+
+    private Integer logicScore;
+
+    private Integer expressionAbilityScore;
     /**
      * 面试创建时间
      * 使用配置进行自动注入
