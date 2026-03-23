@@ -30,7 +30,7 @@ public class JWTInterceptor implements HandlerInterceptor {
         // 2. 检查请求头格式是否正确 (Bearer <token>)
         if (token == null || !token.startsWith("Bearer ")) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            response.getWriter().write("Unauthorized: No valid token provided");
+            response.getWriter().write("Unauthorized: No valid token provided 没有提供token");
             return false; // 拦截请求，不再向下执行
         }
         //提取JWT字符串

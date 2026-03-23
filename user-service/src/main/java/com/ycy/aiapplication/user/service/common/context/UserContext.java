@@ -15,16 +15,16 @@ public final class UserContext {
 
     public static Long getId(){
         UserInfoDTO userInfoDTO = USER_THREAD_LOCAL.get();
-        return Optional.ofNullable(userInfoDTO).map(UserInfoDTO::getId).orElse(null);
+        return Optional.ofNullable(userInfoDTO).map(UserInfoDTO::getId).orElse(2028780128997244929L);
     }
     public static String getAccountId(){
         UserInfoDTO userInfoDTO = USER_THREAD_LOCAL.get();
-        return Optional.ofNullable(userInfoDTO).map(UserInfoDTO::getAccountId).orElse(null);
+        return Optional.ofNullable(userInfoDTO).map(UserInfoDTO::getAccountId).orElse("3253984909@qq.com");
     }
 
     public static String getNickName(){
         UserInfoDTO userInfoDTO = USER_THREAD_LOCAL.get();
-        return Optional.ofNullable(userInfoDTO).map(UserInfoDTO::getNickName).orElse(null);
+        return Optional.ofNullable(userInfoDTO).map(UserInfoDTO::getNickName).orElse("ycy");
     }
 
     public static void removeUser(){USER_THREAD_LOCAL.remove();}
