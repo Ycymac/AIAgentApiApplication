@@ -21,6 +21,7 @@
         <url/>
     </scm>
     <modules>
+        <module>user-service</module>
         <module>agent</module>
 
     </modules>

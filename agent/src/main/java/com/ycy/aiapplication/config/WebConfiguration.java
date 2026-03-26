@@ -1,5 +1,4 @@
-package com.ycy.aiapplication.user.service.config;
-
+package com.ycy.aiapplication.config;
 
 import com.ycy.aiapplication.user.service.toolkit.interceptor.JWTInterceptor;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +15,7 @@ public class WebConfiguration implements WebMvcConfigurer {
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(jwtInterceptor)
                 .addPathPatterns("/api/**")
+                .addPathPatterns("/record/**")
                 .excludePathPatterns(
                         "/api/user/service/login",
                         "/api/user/service/sign/up"

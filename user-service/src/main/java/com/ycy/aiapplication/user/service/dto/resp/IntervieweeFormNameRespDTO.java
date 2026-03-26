@@ -16,7 +16,7 @@ import java.util.Date;
 public class IntervieweeFormNameRespDTO {
 
     @Schema(description = "简历id", example = "2031456789012345678")
-    private Long id;
+    private String id;
 
     @Schema(description = "简历名称", example = "Java后端实习生简历")
     private String formName;

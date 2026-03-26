@@ -117,6 +117,12 @@
             <version>0.0.1-SNAPSHOT</version>
         </dependency>
 
+        <dependency>
+            <groupId>com.ycy.aiapplication</groupId>
+            <artifactId>user-service</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
+
         <!--jwt依赖-->
         <dependency>
             <groupId>com.auth0</groupId>

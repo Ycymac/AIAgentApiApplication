@@ -1,6 +1,5 @@
 package com.ycy.aiapplication.user.service.service.impl;
 
-import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.util.ObjectUtil;
 import cn.hutool.core.util.StrUtil;
@@ -150,7 +149,7 @@ public class IntervieweeFormServiceImpl implements IntervieweeFormService {
                         return null;
                     }
                     return IntervieweeFormNameRespDTO.builder()
-                            .id(Long.parseLong(value.substring(0, splitIndex)))
+                            .id(value.substring(0, splitIndex))
                             .formName(value.substring(splitIndex + 1))
                             .createTime(new Date(score.longValue()))
                             .build();
@@ -199,6 +198,15 @@ public class IntervieweeFormServiceImpl implements IntervieweeFormService {
     }
 
     private IntervieweeFormRespDTO toRespDTO(IntervieweeFormDO intervieweeFormDO) {
-        return BeanUtil.toBean(intervieweeFormDO, IntervieweeFormRespDTO.class);
+        return IntervieweeFormRespDTO.builder()
+                .id(String.valueOf(intervieweeFormDO.getId()))
+                .formName(intervieweeFormDO.getFormName())
+                .userId(String.valueOf(intervieweeFormDO.getUserId()))
+                .grade(intervieweeFormDO.getGrade())
+                .major(intervieweeFormDO.getMajor())
+                .learningDirection(intervieweeFormDO.getLearningDirection())
+                .learningProgress(intervieweeFormDO.getLearningProgress())
+                .createTime(intervieweeFormDO.getCreateTime())
+                .build();
     }
 }

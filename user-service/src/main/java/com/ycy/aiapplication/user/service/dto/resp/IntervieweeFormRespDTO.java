@@ -16,13 +16,13 @@ import java.util.Date;
 public class IntervieweeFormRespDTO {
 
     @Schema(description = "简历id", example = "2031456789012345678")
-    private Long id;
+    private String id;
 
     @Schema(description = "简历名称", example = "Java后端实习生简历")
     private String formName;
 
     @Schema(description = "当前用户id", example = "2028780128997244929")
-    private Long userId;
+    private String userId;
 
     @Schema(description = "面试对象年级", example = "大二")
     private String grade;
