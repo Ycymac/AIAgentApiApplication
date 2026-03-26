@@ -4,9 +4,11 @@ package com.ycy.aiapplication.user.service.controller;
 import com.ycy.aiapplication.framework.web.Result;
 import com.ycy.aiapplication.framework.web.Results;
 import com.ycy.aiapplication.user.service.dto.req.LoginReqDTO;
+import com.ycy.aiapplication.user.service.dto.req.LogoutReqDTO;
 import com.ycy.aiapplication.user.service.dto.req.SignUpReqDTO;
 import com.ycy.aiapplication.user.service.dto.resp.LoginRespDTO;
-import com.ycy.aiapplication.user.service.service.UserLoginService;
+import com.ycy.aiapplication.user.service.dto.resp.LogoutRespDTO;
+import com.ycy.aiapplication.user.service.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -18,7 +20,7 @@ import org.springframework.web.bind.annotation.*;
 @Tag(name="用户操作管理")
 public class UserServiceController {
 
-    private final UserLoginService userLoginService;
+    private final UserService userService;
 
 
 
@@ -27,7 +29,13 @@ public class UserServiceController {
     public Result<LoginRespDTO> login(@RequestBody LoginReqDTO requestParam){
         String accountId = requestParam.getAccountId();
         String password = requestParam.getPassword();
-        return userLoginService.login(accountId,password);
+        return userService.login(accountId,password);
+    }
+
+    @Operation(summary = "用户登出")
+    @PostMapping("/logout")
+    public Result<LogoutRespDTO> logout(@RequestBody LogoutReqDTO requestParam){
+        return userService.logout(requestParam.getAccountId());
     }
 
     @Operation(summary = "用户注册")
@@ -36,7 +44,7 @@ public class UserServiceController {
         String accountId =requestParam.getAccountId();
         String password = requestParam.getPassword();
         String nickName= requestParam.getNickName();
-        userLoginService.signUpNewAccount(accountId,password,nickName);
+        userService.signUpNewAccount(accountId,password,nickName);
         return Results.success();
     }
 

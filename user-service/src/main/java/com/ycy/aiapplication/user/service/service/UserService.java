@@ -2,9 +2,10 @@ package com.ycy.aiapplication.user.service.service;
 
 
 import com.ycy.aiapplication.framework.web.Result;
+import com.ycy.aiapplication.user.service.dto.resp.LogoutRespDTO;
 import com.ycy.aiapplication.user.service.dto.resp.LoginRespDTO;
 
-public interface UserLoginService {
+public interface UserService {
 
     /**
      * 验证账户和密码
@@ -13,6 +14,13 @@ public interface UserLoginService {
      * @return 返回对应的账户信息用于登录界面等
      */
    Result<LoginRespDTO> login(String accountId, String password);
+
+    /**
+     * 用户登出
+     * @param accountId 账户id
+     * @return 登出结果
+     */
+   Result<LogoutRespDTO> logout(String accountId);
 
     /**
      * 创建新账户

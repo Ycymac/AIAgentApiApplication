@@ -13,9 +13,14 @@ import com.ycy.aiapplication.agent.dto.resp.FuzzySearchInterviewRecordRespDTO;
 import com.ycy.aiapplication.agent.dto.resp.SearchInterviewNameAndIdRespDTO;
 import com.ycy.aiapplication.agent.service.RecordService;
 import com.ycy.aiapplication.framework.exception.ClientException;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -53,13 +58,15 @@ public class RecordServiceImpl implements RecordService {
             log.info("当前用户没有{}对应记录",searchInput);
             return Collections.emptyList();
         }
-        for(String nameWithId:stringSet){
-           int index = nameWithId.indexOf("|");
-            String id=nameWithId.substring(0,index);
-            String name=nameWithId.substring(index+1);
+        for(String cacheValue:stringSet){
+            RecordCacheInfo recordCacheInfo = parseRecordCache(cacheValue, null);
+            if(Objects.isNull(recordCacheInfo)){
+                continue;
+            }
+            String name = recordCacheInfo.getName();
             if(StrUtil.isNotEmpty(name)&&name.toLowerCase().contains(keyWord)){
                 respList.add(FuzzySearchInterviewRecordRespDTO.builder()
-                                .id(Long.parseLong(id))
+                                .id(recordCacheInfo.getId())
                                 .recordName(name)
                                 .build());
 
@@ -79,9 +86,9 @@ public class RecordServiceImpl implements RecordService {
     public List<SearchInterviewNameAndIdRespDTO> searchInterviewNameAndId() {
         Long userId= UserContext.getId();
         String cacheKey = String.format(AgentRedisConstant.INTERVIEW_RECORD_ID_WITH_NAME_CACHE_KEY, userId);
-        Set<String> records = stringRedisTemplate
+        Set<ZSetOperations.TypedTuple<String>> records = stringRedisTemplate
                 .opsForZSet()
-                .reverseRange(cacheKey, 0, 99);
+                .reverseRangeWithScores(cacheKey, 0, 99);
 
         if (CollectionUtil.isEmpty(records)) {
             log.info("当前用户{}记录为空",userId);
@@ -90,18 +97,15 @@ public class RecordServiceImpl implements RecordService {
         log.info("查询记录成功，立即返回结果");
         return records.stream()
                 .map(record -> {
-
-                    int index = record.indexOf("|");
-                    if (index == -1) {
+                    RecordCacheInfo recordCacheInfo = parseRecordCache(record.getValue(), record.getScore());
+                    if (Objects.isNull(recordCacheInfo)) {
                         return null;
                     }
-
-                    Long id = Long.valueOf(record.substring(0, index));
-                    String name = record.substring(index + 1);
-
                     return SearchInterviewNameAndIdRespDTO.builder()
-                            .id(id)
-                            .name(name)
+                            .id(recordCacheInfo.getId())
+                            .name(recordCacheInfo.getName())
+                            .interviewPoint(recordCacheInfo.getInterviewPoint())
+                            .createTime(recordCacheInfo.getCreateTime())
                             .build();
 
                 })
@@ -132,6 +136,51 @@ public class RecordServiceImpl implements RecordService {
         log.info("查询到对应记录，记录名称：{}，记录id：{}",interviewRecordDO.getRecordName(),interviewRecordDO.getId());
         return interviewRecordDO;
 
+    }
+    private RecordCacheInfo parseRecordCache(String cacheValue, Double score) {
+        if (StrUtil.isBlank(cacheValue)) {
+            return null;
+        }
+        String[] cacheInfoArray = cacheValue.split("\\|");
+        if (cacheInfoArray.length < 2) {
+            return null;
+        }
+        try {
+            Long id = Long.parseLong(cacheInfoArray[0]);
+            String name = cacheInfoArray[1];
+            Integer interviewPoint = cacheInfoArray.length >= 3 ? Integer.parseInt(cacheInfoArray[2]) : null;
+            Date createTime;
+            if (cacheInfoArray.length >= 4) {
+                createTime = new Date(Long.parseLong(cacheInfoArray[3]));
+            } else if (Objects.nonNull(score)) {
+                createTime = new Date(score.longValue());
+            } else {
+                createTime = null;
+            }
+            return RecordCacheInfo.builder()
+                    .id(id)
+                    .name(name)
+                    .interviewPoint(interviewPoint)
+                    .createTime(createTime)
+                    .build();
+        } catch (NumberFormatException ex) {
+            log.warn("redis缓存记录解析失败，cacheValue:{}", cacheValue);
+            return null;
+        }
+    }
+
+    @Data
+    @AllArgsConstructor
+    @NoArgsConstructor
+    @Builder
+    private static class RecordCacheInfo {
+        private Long id;
+
+        private String name;
+
+        private Integer interviewPoint;
+
+        private Date createTime;
     }
 }
 

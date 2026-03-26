@@ -32,6 +32,8 @@ public class InterviewRecordDO {
      */
     private String reportRecord;
 
+    private Integer interviewPoint;
+
     private Integer accuracyScore;
 
     private Integer completenessScore;

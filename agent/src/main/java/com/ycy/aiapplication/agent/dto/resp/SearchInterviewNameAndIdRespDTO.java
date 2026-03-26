@@ -5,6 +5,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.Date;
+
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
@@ -14,4 +16,8 @@ public class SearchInterviewNameAndIdRespDTO {
     private String name;
 
     private Long id;
+
+    private Integer interviewPoint;
+
+    private Date createTime;
 }

@@ -334,6 +334,7 @@ public class AgentAskImpl implements AgentAsk {
                     .build();
 
             //数据库存储：通过名称 + 日期进行区分
+            recordDO.setInterviewPoint(dimensionScoreDTO.getInterviewPoint());
             recordDO.setAccuracyScore(dimensionScoreDTO.getAccuracyScore());
             recordDO.setCompletenessScore(dimensionScoreDTO.getCompletenessScore());
             recordDO.setLevelOfDetailScore(dimensionScoreDTO.getLevelOfDetailScore());
@@ -346,7 +347,7 @@ public class AgentAskImpl implements AgentAsk {
             Long id= recordDO.getId();
             Date now=recordDO.getCreateTime();
             //使用分隔符防止记录名称当中出现下划线
-            String idAndName = id.toString() + "|" + recordName;
+            String idAndName = id + "|" + recordName + "|" + dimensionScoreDTO.getInterviewPoint() + "|" + now.getTime();
 
             stringRedisTemplate.opsForZSet().add(zSetKey, idAndName,now.getTime());
 
@@ -408,6 +409,9 @@ public class AgentAskImpl implements AgentAsk {
         return agentInterviewReport;
     }
 
+    /**
+     * 所有ai分数继续宁归一化
+     */
     private void normalizeEvaluationResp(ApiEvaluationResp apiEvaluationResp) {
         apiEvaluationResp.setAccuracy(normalizeSingleScore(apiEvaluationResp.getAccuracy()));
         apiEvaluationResp.setCompleteness(normalizeSingleScore(apiEvaluationResp.getCompleteness()));
@@ -425,8 +429,7 @@ public class AgentAskImpl implements AgentAsk {
     }
 
     /**
-     * 生成报告名字用于后端存储、前端显示
-     */
+     * 生成报告名字用于后端存储、前端显示     */
     private String generateRecordName(IntervieweeForm form){
         String json = JSON.toJSONString(form);
         String recordName;
