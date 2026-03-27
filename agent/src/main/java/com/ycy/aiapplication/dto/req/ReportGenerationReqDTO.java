@@ -1,8 +1,8 @@
 package com.ycy.aiapplication.dto.req;
 
-
-import com.ycy.aiapplication.common.pojo.IntervieweeForm;
 import com.ycy.aiapplication.dto.resp.AnswerEvaluationRespDTO;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -14,12 +14,12 @@ import java.util.List;
 @AllArgsConstructor
 @NoArgsConstructor
 @Builder
+@Schema(description = "生成面试报告请求参数")
 public class ReportGenerationReqDTO {
 
-    //所有问题&ai的评价，通过所有的评价构建总评
+    @ArraySchema(schema = @Schema(implementation = AnswerEvaluationRespDTO.class))
     private List<AnswerEvaluationRespDTO> answerEvaluationRespS;
-    //面试“简历”
-    private IntervieweeForm form;
 
-
+    @Schema(description = "当前面试使用的简历id", example = "2031456789012345678")
+    private String formId;
 }

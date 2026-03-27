@@ -26,7 +26,7 @@ springdoc:
   group-configs:
     - group: 'default'
       paths-to-match: '/**'
-      packages-to-scan: com.ycy.aiapplication.agent
+      packages-to-scan: com.ycy.aiapplication
 
 knife4j:
   enable: true

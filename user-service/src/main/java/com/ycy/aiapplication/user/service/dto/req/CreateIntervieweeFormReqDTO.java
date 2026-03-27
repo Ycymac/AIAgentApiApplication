@@ -1,11 +1,20 @@
 package com.ycy.aiapplication.user.service.dto.req;
 
+import com.ycy.aiapplication.user.service.common.pojo.EducationExperience;
+import com.ycy.aiapplication.user.service.common.pojo.ProjectExperience;
+import com.ycy.aiapplication.user.service.common.pojo.WorkExperience;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
+/**
+ * 新增简历请求参数。
+ */
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
@@ -13,18 +22,45 @@ import lombok.NoArgsConstructor;
 @Schema(description = "新增简历请求参数")
 public class CreateIntervieweeFormReqDTO {
 
-    @Schema(description = "简历名称", example = "Java后端实习生简历")
+    /**
+     * 简历名称，用于前端展示和列表搜索。
+     */
+    @Schema(description = "简历名称，用于前端展示和列表搜索", example = "Java后端秋招简历")
     private String formName;
 
-    @Schema(description = "面试对象年级", example = "大二")
-    private String grade;
+    /**
+     * 候选人姓名。
+     */
+    @Schema(description = "候选人姓名", example = "张三")
+    private String candidateName;
 
-    @Schema(description = "学习专业", example = "软件工程")
-    private String major;
+    /**
+     * 求职意向或目标岗位。
+     */
+    @Schema(description = "求职意向或目标岗位", example = "高级Java开发工程师")
+    private String jobIntention;
 
-    @Schema(description = "学习方向", example = "Java后端开发")
-    private String learningDirection;
+    /**
+     * 专业技能列表。
+     */
+    @ArraySchema(schema = @Schema(description = "专业技能项", example = "Spring Boot"))
+    private List<String> professionalSkills;
 
-    @Schema(description = "学习进度", example = "SpringBoot、JavaSE、Redis、MySQL、JVM")
-    private String learningProgress;
+    /**
+     * 教育经历列表。
+     */
+    @ArraySchema(schema = @Schema(implementation = EducationExperience.class))
+    private List<EducationExperience> educationExperiences;
+
+    /**
+     * 工作经历列表。
+     */
+    @ArraySchema(schema = @Schema(implementation = WorkExperience.class))
+    private List<WorkExperience> workExperiences;
+
+    /**
+     * 项目经历列表。
+     */
+    @ArraySchema(schema = @Schema(implementation = ProjectExperience.class))
+    private List<ProjectExperience> projectExperiences;
 }

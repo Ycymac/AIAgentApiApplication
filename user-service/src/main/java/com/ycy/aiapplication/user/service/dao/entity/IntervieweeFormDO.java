@@ -13,7 +13,8 @@ import lombok.NoArgsConstructor;
 import java.util.Date;
 
 /**
- * 简历持久化对象
+ * 简历持久化对象。
+ * 其中专业技能、教育经历、工作经历、项目经历均以 JSON 字符串形式存储。
  */
 @Data
 @AllArgsConstructor
@@ -22,45 +23,61 @@ import java.util.Date;
 @TableName("interviewee_form")
 public class IntervieweeFormDO {
 
+    /**
+     * 简历主键 ID。
+     */
     @TableId
     private Long id;
 
     /**
-     * 简历名称
+     * 简历名称。
      */
     private String formName;
 
     /**
-     * 当前用户id
+     * 所属用户 ID。
      */
     private Long userId;
 
     /**
-     * 面试对象年级
+     * 候选人姓名。
      */
-    private String grade;
+    private String candidateName;
 
     /**
-     * 学习专业
+     * 求职意向。
      */
-    private String major;
+    private String jobIntention;
 
     /**
-     * 学习方向
+     * 专业技能 JSON 数组。
      */
-    private String learningDirection;
+    private String professionalSkills;
 
     /**
-     * 学习进度
+     * 教育经历 JSON 数组。
      */
-    private String learningProgress;
+    private String educationExperiences;
 
     /**
-     * 创建时间
+     * 工作经历 JSON 数组。
+     */
+    private String workExperiences;
+
+    /**
+     * 项目经历 JSON 数组。
+     */
+    private String projectExperiences;
+
+    /**
+     * 创建时间。
      */
     @TableField(fill = FieldFill.INSERT)
     private Date createTime;
 
+    /**
+     * 逻辑删除标记。
+     */
     @TableLogic
     @TableField(fill = FieldFill.INSERT)
     private Boolean deleted;

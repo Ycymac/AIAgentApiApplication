@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.handlers.MetaObjectHandler;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
 import com.ycy.aiapplication.dao.mapper.InterviewRecordDOMapper;
+import com.ycy.aiapplication.user.service.dao.mapper.IntervieweeFormDOMapper;
 import com.ycy.aiapplication.user.service.dao.mapper.UserAccountDOMapper;
 import org.apache.ibatis.reflection.MetaObject;
 import org.apache.ibatis.session.SqlSessionFactory;
@@ -36,6 +37,13 @@ public class DataBaseConfiguration {
     @Bean
     public MapperFactoryBean<InterviewRecordDOMapper> interviewRecordDOMapper(SqlSessionFactory sqlSessionFactory) {
         MapperFactoryBean<InterviewRecordDOMapper> factoryBean = new MapperFactoryBean<>(InterviewRecordDOMapper.class);
+        factoryBean.setSqlSessionFactory(sqlSessionFactory);
+        return factoryBean;
+    }
+
+    @Bean
+    public MapperFactoryBean<IntervieweeFormDOMapper> intervieweeFormDOMapper(SqlSessionFactory sqlSessionFactory) {
+        MapperFactoryBean<IntervieweeFormDOMapper> factoryBean = new MapperFactoryBean<>(IntervieweeFormDOMapper.class);
         factoryBean.setSqlSessionFactory(sqlSessionFactory);
         return factoryBean;
     }

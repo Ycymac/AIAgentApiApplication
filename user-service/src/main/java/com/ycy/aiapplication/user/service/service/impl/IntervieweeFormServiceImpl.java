@@ -4,9 +4,15 @@ import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.util.ObjectUtil;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ycy.aiapplication.framework.exception.ClientException;
 import com.ycy.aiapplication.user.service.common.constant.UserServiceRedisConstant;
 import com.ycy.aiapplication.user.service.common.context.UserContext;
+import com.ycy.aiapplication.user.service.common.pojo.EducationExperience;
+import com.ycy.aiapplication.user.service.common.pojo.ProjectExperience;
+import com.ycy.aiapplication.user.service.common.pojo.WorkExperience;
 import com.ycy.aiapplication.user.service.dao.entity.IntervieweeFormDO;
 import com.ycy.aiapplication.user.service.dao.mapper.IntervieweeFormDOMapper;
 import com.ycy.aiapplication.user.service.dto.req.CreateIntervieweeFormReqDTO;
@@ -37,19 +43,29 @@ public class IntervieweeFormServiceImpl implements IntervieweeFormService {
 
     private final StringRedisTemplate stringRedisTemplate;
 
+    private final ObjectMapper objectMapper;
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public IntervieweeFormRespDTO addIntervieweeForm(CreateIntervieweeFormReqDTO requestParam) {
-        validFormParam(requestParam.getFormName(), requestParam.getGrade(), requestParam.getMajor(),
-                requestParam.getLearningDirection(), requestParam.getLearningProgress());
+        validFormParam(
+                requestParam.getFormName(),
+                requestParam.getCandidateName(),
+                requestParam.getJobIntention(),
+                requestParam.getProfessionalSkills(),
+                requestParam.getEducationExperiences(),
+                requestParam.getWorkExperiences(),
+                requestParam.getProjectExperiences());
         Long userId = getCurrentUserId();
         IntervieweeFormDO intervieweeFormDO = IntervieweeFormDO.builder()
                 .formName(requestParam.getFormName())
                 .userId(userId)
-                .grade(requestParam.getGrade())
-                .major(requestParam.getMajor())
-                .learningDirection(requestParam.getLearningDirection())
-                .learningProgress(requestParam.getLearningProgress())
+                .candidateName(requestParam.getCandidateName())
+                .jobIntention(requestParam.getJobIntention())
+                .professionalSkills(writeJson(requestParam.getProfessionalSkills()))
+                .educationExperiences(writeJson(requestParam.getEducationExperiences()))
+                .workExperiences(writeJson(defaultIfNull(requestParam.getWorkExperiences())))
+                .projectExperiences(writeJson(requestParam.getProjectExperiences()))
                 .build();
         intervieweeFormDOMapper.insert(intervieweeFormDO);
         addOrRefreshFormNameCache(intervieweeFormDO.getId(), requestParam.getFormName(), userId, intervieweeFormDO.getCreateTime());
@@ -63,17 +79,25 @@ public class IntervieweeFormServiceImpl implements IntervieweeFormService {
         if (ObjectUtil.isNull(requestParam.getId())) {
             throw new ClientException("简历id不能为空，请检查！");
         }
-        validFormParam(requestParam.getFormName(), requestParam.getGrade(), requestParam.getMajor(),
-                requestParam.getLearningDirection(), requestParam.getLearningProgress());
+        validFormParam(
+                requestParam.getFormName(),
+                requestParam.getCandidateName(),
+                requestParam.getJobIntention(),
+                requestParam.getProfessionalSkills(),
+                requestParam.getEducationExperiences(),
+                requestParam.getWorkExperiences(),
+                requestParam.getProjectExperiences());
         Long userId = getCurrentUserId();
         IntervieweeFormDO oldIntervieweeFormDO = getIntervieweeFormByIdAndUserId(requestParam.getId(), userId);
         IntervieweeFormDO updateIntervieweeFormDO = IntervieweeFormDO.builder()
                 .id(requestParam.getId())
                 .formName(requestParam.getFormName())
-                .grade(requestParam.getGrade())
-                .major(requestParam.getMajor())
-                .learningDirection(requestParam.getLearningDirection())
-                .learningProgress(requestParam.getLearningProgress())
+                .candidateName(requestParam.getCandidateName())
+                .jobIntention(requestParam.getJobIntention())
+                .professionalSkills(writeJson(requestParam.getProfessionalSkills()))
+                .educationExperiences(writeJson(requestParam.getEducationExperiences()))
+                .workExperiences(writeJson(defaultIfNull(requestParam.getWorkExperiences())))
+                .projectExperiences(writeJson(requestParam.getProjectExperiences()))
                 .build();
         intervieweeFormDOMapper.updateById(updateIntervieweeFormDO);
         removeFormNameCache(oldIntervieweeFormDO.getId(), oldIntervieweeFormDO.getFormName(), userId);
@@ -158,10 +182,57 @@ public class IntervieweeFormServiceImpl implements IntervieweeFormService {
                 .toList();
     }
 
-    private void validFormParam(String formName, String grade, String major, String learningDirection, String learningProgress) {
-        if (StrUtil.isBlank(formName) || StrUtil.isBlank(grade) || StrUtil.isBlank(major)
-                || StrUtil.isBlank(learningDirection) || StrUtil.isBlank(learningProgress)) {
+    private void validFormParam(
+            String formName,
+            String candidateName,
+            String jobIntention,
+            List<String> professionalSkills,
+            List<EducationExperience> educationExperiences,
+            List<WorkExperience> workExperiences,
+            List<ProjectExperience> projectExperiences) {
+        if (StrUtil.isBlank(formName) || StrUtil.isBlank(candidateName) || StrUtil.isBlank(jobIntention)) {
             throw new ClientException("简历信息不完整，请检查！");
+        }
+        if (CollectionUtil.isEmpty(professionalSkills)
+                || CollectionUtil.isEmpty(educationExperiences)
+                || CollectionUtil.isEmpty(projectExperiences)) {
+            throw new ClientException("简历信息不完整，请检查！");
+        }
+        boolean illegalSkill = professionalSkills.stream().anyMatch(StrUtil::isBlank);
+        if (illegalSkill) {
+            throw new ClientException("专业技能信息不完整，请检查！");
+        }
+        for (EducationExperience each : educationExperiences) {
+            if (ObjectUtil.isNull(each)
+                    || StrUtil.isBlank(each.getSchoolName())
+                    || StrUtil.isBlank(each.getStartDate())
+                    || StrUtil.isBlank(each.getEndDate())
+                    || StrUtil.isBlank(each.getMajor())
+                    || StrUtil.isBlank(each.getDegree())) {
+                throw new ClientException("教育经历信息不完整，请检查！");
+            }
+        }
+        if (CollectionUtil.isNotEmpty(workExperiences)) {
+            for (WorkExperience each : workExperiences) {
+                if (ObjectUtil.isNull(each)
+                        || StrUtil.isBlank(each.getCompanyName())
+                        || StrUtil.isBlank(each.getStartDate())
+                        || StrUtil.isBlank(each.getEndDate())
+                        || StrUtil.isBlank(each.getPosition())
+                        || StrUtil.isBlank(each.getWorkContent())) {
+                    throw new ClientException("工作经历信息不完整，请检查！");
+                }
+            }
+        }
+        for (ProjectExperience each : projectExperiences) {
+            if (ObjectUtil.isNull(each)
+                    || StrUtil.isBlank(each.getProjectName())
+                    || StrUtil.isBlank(each.getProjectRole())
+                    || StrUtil.isBlank(each.getProjectDescription())
+                    || StrUtil.isBlank(each.getResponsibility())
+                    || StrUtil.isBlank(each.getAchievement())) {
+                throw new ClientException("项目经历信息不完整，请检查！");
+            }
         }
     }
 
@@ -202,11 +273,56 @@ public class IntervieweeFormServiceImpl implements IntervieweeFormService {
                 .id(String.valueOf(intervieweeFormDO.getId()))
                 .formName(intervieweeFormDO.getFormName())
                 .userId(String.valueOf(intervieweeFormDO.getUserId()))
-                .grade(intervieweeFormDO.getGrade())
-                .major(intervieweeFormDO.getMajor())
-                .learningDirection(intervieweeFormDO.getLearningDirection())
-                .learningProgress(intervieweeFormDO.getLearningProgress())
+                .candidateName(intervieweeFormDO.getCandidateName())
+                .jobIntention(intervieweeFormDO.getJobIntention())
+                .professionalSkills(readStringList(intervieweeFormDO.getProfessionalSkills()))
+                .educationExperiences(readEducationExperiences(intervieweeFormDO.getEducationExperiences()))
+                .workExperiences(readWorkExperiences(intervieweeFormDO.getWorkExperiences()))
+                .projectExperiences(readProjectExperiences(intervieweeFormDO.getProjectExperiences()))
                 .createTime(intervieweeFormDO.getCreateTime())
                 .build();
+    }
+
+    private List<WorkExperience> defaultIfNull(List<WorkExperience> workExperiences) {
+        return CollectionUtil.isEmpty(workExperiences) ? Collections.emptyList() : workExperiences;
+    }
+
+    private String writeJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (JsonProcessingException ex) {
+            throw new ClientException("简历信息序列化失败，请检查！");
+        }
+    }
+
+    private List<String> readStringList(String json) {
+        return readList(json, new TypeReference<List<String>>() {
+        });
+    }
+
+    private List<EducationExperience> readEducationExperiences(String json) {
+        return readList(json, new TypeReference<List<EducationExperience>>() {
+        });
+    }
+
+    private List<WorkExperience> readWorkExperiences(String json) {
+        return readList(json, new TypeReference<List<WorkExperience>>() {
+        });
+    }
+
+    private List<ProjectExperience> readProjectExperiences(String json) {
+        return readList(json, new TypeReference<List<ProjectExperience>>() {
+        });
+    }
+
+    private <T> List<T> readList(String json, TypeReference<List<T>> typeReference) {
+        if (StrUtil.isBlank(json)) {
+            return Collections.emptyList();
+        }
+        try {
+            return objectMapper.readValue(json, typeReference);
+        } catch (JsonProcessingException ex) {
+            throw new ClientException("简历信息解析失败，请检查！");
+        }
     }
 }

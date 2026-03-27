@@ -145,6 +145,7 @@ public class RecordServiceImpl implements RecordService {
                 .userId(String.valueOf(interviewRecordDO.getUserId()))
                 .recordName(interviewRecordDO.getRecordName())
                 .interviewProcessRecord(interviewRecordDO.getInterviewProcessRecord())
+                .interviewKeywords(interviewRecordDO.getInterviewKeywords())
                 .reportRecord(interviewRecordDO.getReportRecord())
                 .interviewPoint(interviewRecordDO.getInterviewPoint())
                 .accuracyScore(interviewRecordDO.getAccuracyScore())

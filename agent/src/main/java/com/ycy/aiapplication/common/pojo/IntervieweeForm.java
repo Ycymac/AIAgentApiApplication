@@ -1,52 +1,57 @@
 package com.ycy.aiapplication.common.pojo;
 
+import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
+/**
+ * 面试使用的简历结构。
+ */
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
 @Builder
+@Schema(description = "面试使用的简历结构")
 public class IntervieweeForm {
-    /**
-     * 面试对象年级
-     * 这里前端应该通过菜单栏进行选择而不是直接填写
-     */
-    @Schema(
-            description = "面试对象年级",
-            example = "大二"
 
-    )
-    private String grade;
     /**
-     * 学习的专业
-     * 前端进行填写
+     * 候选人姓名。
      */
-    @Schema(
-            description = "学习专业",
-            example = "软件工程"
+    @Schema(description = "候选人姓名", example = "张三")
+    private String candidateName;
 
-    )
-    private String major;
     /**
-     * 学习方向
-     * 个人填写
+     * 求职意向或目标岗位。
      */
-    @Schema(
-            description = "学习方向",
-            example = "Java后端开发"
-    )
-    private String learningDirection;
+    @Schema(description = "求职意向或目标岗位", example = "高级Java开发工程师")
+    private String jobIntention;
+
     /**
-     * 学习进度
-     * 个人填写
+     * 专业技能列表。
      */
-    @Schema(
-            description = "学习进度",
-            example = "学习过的知识点有：1.SpringBoot框架 2.JavaSE基础 3.redis基础，熟悉所有数据类型 3.MySQL使用、底层，尤其是执行引擎相关部分 4.JVM底层知识，例如堆、栈、栈帧、执行引擎、方法区（永久代和元空间）"
-    )
-    private String learningProgress;
+    @ArraySchema(schema = @Schema(description = "专业技能项", example = "Spring Cloud"))
+    private List<String> professionalSkills;
+
+    /**
+     * 教育经历列表。
+     */
+    @ArraySchema(schema = @Schema(implementation = EducationExperience.class))
+    private List<EducationExperience> educationExperiences;
+
+    /**
+     * 工作经历列表。
+     */
+    @ArraySchema(schema = @Schema(implementation = WorkExperience.class))
+    private List<WorkExperience> workExperiences;
+
+    /**
+     * 项目经历列表。
+     */
+    @ArraySchema(schema = @Schema(implementation = ProjectExperience.class))
+    private List<ProjectExperience> projectExperiences;
 }

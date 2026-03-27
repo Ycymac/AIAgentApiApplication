@@ -5,44 +5,47 @@ import com.ycy.aiapplication.dto.req.SearchInterviewRecordByIdReqDTO;
 import com.ycy.aiapplication.dto.resp.FuzzySearchInterviewRecordRespDTO;
 import com.ycy.aiapplication.dto.resp.InterviewRecordRespDTO;
 import com.ycy.aiapplication.dto.resp.SearchInterviewNameAndIdRespDTO;
-import com.ycy.aiapplication.service.RecordService;
 import com.ycy.aiapplication.framework.web.Result;
 import com.ycy.aiapplication.framework.web.Results;
+import com.ycy.aiapplication.service.RecordService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-@Tag(name="记录访问模块")
+@Tag(name = "记录访问模块")
 @RestController
 @RequestMapping("/record/service")
 @RequiredArgsConstructor
+@SecurityRequirement(name = "bearerAuth")
 public class RecordController {
 
     private final RecordService recordService;
 
     @Operation(summary = "搜索（支持模糊查询）")
     @PostMapping("/fuzzy/search")
-    public Result<List<FuzzySearchInterviewRecordRespDTO>> fuzzySearchInterviewName(@RequestBody FuzzySearchInterviewNameReqDTO requestParam){
+    public Result<List<FuzzySearchInterviewRecordRespDTO>> fuzzySearchInterviewName(
+            @RequestBody FuzzySearchInterviewNameReqDTO requestParam) {
         return Results.success(recordService.fuzzySearchInterviewRecordName(requestParam));
     }
 
-    @Operation(summary="记录名称显示")
+    @Operation(summary = "记录名称显示")
     @GetMapping("/search/record")
-    public Result<List<SearchInterviewNameAndIdRespDTO>> searchInterviewNameAndId(){
+    public Result<List<SearchInterviewNameAndIdRespDTO>> searchInterviewNameAndId() {
         return Results.success(recordService.searchInterviewNameAndId());
     }
 
     @Operation(summary = "显示点击的当前记录")
     @PostMapping("/click/record")
-    public Result<InterviewRecordRespDTO> searchInterviewRecordById(@RequestBody SearchInterviewRecordByIdReqDTO requestParam){
+    public Result<InterviewRecordRespDTO> searchInterviewRecordById(
+            @RequestBody SearchInterviewRecordByIdReqDTO requestParam) {
         return Results.success(recordService.searchInterviewRecordById(requestParam.getId()));
     }
-
-
-
-
-
 }
