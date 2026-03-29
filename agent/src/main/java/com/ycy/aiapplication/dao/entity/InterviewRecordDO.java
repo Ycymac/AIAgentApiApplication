@@ -44,8 +44,14 @@ public class InterviewRecordDO {
     /**
      * 面试总评。
      */
-    @Schema(description = "面试报告 JSON 字符串")
-    private String reportRecord;
+    @Schema(description = "面试总结报告 JSON 字符串")
+    private String summaryReportRecord;
+
+    /**
+     * 面试建议评。
+     */
+    @Schema(description = "面试总结报告 JSON 字符串")
+    private String adviceReportRecord;
 
     @Schema(description = "面试总分，100分制", example = "86")
     private Integer interviewPoint;

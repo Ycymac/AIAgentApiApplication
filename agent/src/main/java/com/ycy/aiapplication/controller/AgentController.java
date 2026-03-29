@@ -24,7 +24,7 @@ import java.util.List;
 @RestController
 @RequestMapping("api/agent")
 @RequiredArgsConstructor
-@SecurityRequirement(name = "bearerAuth")
+@SecurityRequirement(name = "Authorization")
 public class AgentController {
 
     private final AgentAskImpl agentAsk;

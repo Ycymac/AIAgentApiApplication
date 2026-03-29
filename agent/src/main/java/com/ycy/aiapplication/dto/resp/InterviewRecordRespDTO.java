@@ -30,8 +30,11 @@ public class InterviewRecordRespDTO {
     @Schema(description = "面试关键字，对应简历 professionalSkills 的 JSON 字符串")
     private String interviewKeywords;
 
-    @Schema(description = "面试报告 JSON 字符串")
-    private String reportRecord;
+    @Schema(description = "面试总结报告 JSON 字符串")
+    private String summaryReportRecord;
+
+    @Schema(description = "面试建议报告 JSON 字符串")
+    private String adviceReportRecord;
 
     @Schema(description = "面试总分，100分制", example = "86")
     private Integer interviewPoint;

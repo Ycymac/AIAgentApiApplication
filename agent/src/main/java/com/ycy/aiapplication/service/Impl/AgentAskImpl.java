@@ -330,6 +330,7 @@ public class AgentAskImpl implements AgentAsk {
             throw new ClientException("回答评估结果不能为空");
         }
 
+        Long userId = getCurrentUserId();
         IntervieweeForm form = getIntervieweeFormById(requestParam.getFormId());
         InterviewDimensionScoreDTO dimensionScoreDTO = calculateDimensionScore(requestParam.getAnswerEvaluationRespS());
         JSONObject jsonObject = new JSONObject();
@@ -348,7 +349,6 @@ public class AgentAskImpl implements AgentAsk {
                 .supplyAsync(() -> generateRecordName(form), executorService);
 
         return reportFuture.thenCombine(recordNameFuture, (apiInterviewReport, recordName) -> {
-            Long userId = getCurrentUserId();
             String interviewProcessRecord = JSON.toJSONString(requestParam.getAnswerEvaluationRespS());
             String interviewKeywords = JSON.toJSONString(form.getProfessionalSkills());
             InterviewRecordDO recordDO = InterviewRecordDO.builder()
@@ -356,7 +356,8 @@ public class AgentAskImpl implements AgentAsk {
                     .userId(userId)
                     .interviewProcessRecord(interviewProcessRecord)
                     .interviewKeywords(interviewKeywords)
-                    .reportRecord(JSON.toJSONString(apiInterviewReport))
+                    .summaryReportRecord(JSON.toJSONString(apiInterviewReport.getSummaryReport()))
+                    .adviceReportRecord(JSON.toJSONString(apiInterviewReport.getAdviceReport()))
                     .build();
 
             recordDO.setInterviewPoint(dimensionScoreDTO.getInterviewPoint());

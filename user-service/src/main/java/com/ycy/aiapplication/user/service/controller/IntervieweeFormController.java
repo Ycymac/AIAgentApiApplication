@@ -11,9 +11,16 @@ import com.ycy.aiapplication.user.service.dto.resp.IntervieweeFormNameRespDTO;
 import com.ycy.aiapplication.user.service.dto.resp.IntervieweeFormRespDTO;
 import com.ycy.aiapplication.user.service.service.IntervieweeFormService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
@@ -21,6 +28,7 @@ import java.util.List;
 @RequestMapping("api/interviewee/form")
 @RequiredArgsConstructor
 @Tag(name = "简历持久化管理")
+@SecurityRequirement(name = "Authorization")
 public class IntervieweeFormController {
 
     private final IntervieweeFormService intervieweeFormService;
@@ -53,7 +61,8 @@ public class IntervieweeFormController {
 
     @Operation(summary = "简历名称模糊查询")
     @PostMapping("/fuzzy/search")
-    public Result<List<IntervieweeFormRespDTO>> fuzzySearchIntervieweeForm(@RequestBody FuzzySearchIntervieweeFormReqDTO requestParam) {
+    public Result<List<IntervieweeFormRespDTO>> fuzzySearchIntervieweeForm(
+            @RequestBody FuzzySearchIntervieweeFormReqDTO requestParam) {
         return Results.success(intervieweeFormService.fuzzySearchIntervieweeForm(requestParam));
     }
 

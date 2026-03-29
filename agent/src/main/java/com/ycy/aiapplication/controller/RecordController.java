@@ -24,7 +24,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/record/service")
 @RequiredArgsConstructor
-@SecurityRequirement(name = "bearerAuth")
+@SecurityRequirement(name = "Authorization")
 public class RecordController {
 
     private final RecordService recordService;
