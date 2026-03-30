@@ -1,3 +1,4 @@
+
 package com.ycy.aiapplication.common.constant;
 
 public class AIPromptConstant {
@@ -30,7 +31,7 @@ public class AIPromptConstant {
             8. 不允许新增字段；
             9. questionDescription必须是字符串类型。""";
 
-    public static final String ANSWER_POINT_GIVE = """
+    /*public static final String ANSWER_POINT_GIVE = """
             请按照真实面试标准评分。
 
             输出格式：
@@ -79,7 +80,7 @@ public class AIPromptConstant {
               "accuracy": 0,
               "logic": 0,
               "expressionAbility": 0
-            }""";
+            }""";*/
 
     public static final String SUMMARY_ASK_V2 = """
             我将提供一个JSON，其中包含：
@@ -113,6 +114,48 @@ public class AIPromptConstant {
             {
               "summaryReport": "整体总结内容",
               "adviceReport": "改进建议内容"
+            }""";
+
+    public static final String ANSWER_COMMENT_GIVE = """
+            请站在真实技术面试官视角，对候选人的回答给出自然、简洁、可读的评价。
+            强制要求：
+            1. 你必须只返回一个合法 JSON 对象；
+            2. 只允许包含 comment 一个字段；
+            3. comment 必须使用中文，长度控制在 40-120 字；
+            4. 即使候选人回答过短、答非所问或无法评分，也必须返回 {"comment":"..."}；
+            5. 不允许输出 Markdown、代码块、解释说明或额外字段。
+            输出格式：
+            {
+              "comment": "评价内容"
+            }""";
+
+    public static final String ANSWER_SCORE_GIVE = """
+            请按照真实技术面试标准，只对候选人的回答进行量化打分。
+            评分维度说明：
+            1. accuracy：0-10 分，判断回答是否正确、是否紧扣题目；
+            2. completeness：0-10 分，判断是否覆盖题目关键点；
+            3. levelOfDetail：0-10 分，判断是否展开到足够细节；
+            4. logic：0-10 分，判断结构是否清晰、论述是否连贯；
+            5. expressionAbility：0-10 分，判断语言表达是否清楚、术语使用是否准确。
+            评分要求：
+            1. 如果没有正面回答题目核心，accuracy 不得高于 5 分；
+            2. 如果存在明显知识错误，accuracy 不得高于 3 分；
+            3. 如果回答结构混乱、前后矛盾，应降低 logic；
+            4. 如果表达含糊、关键词使用不准确，应降低 expressionAbility；
+            5. 所有分数必须是 0-10 之间的整数。
+            强制要求：
+            1. 你必须只返回一个合法 JSON 对象；
+            2. 字段名必须严格为 completeness、levelOfDetail、accuracy、logic、expressionAbility；
+            3. 不允许缺失字段、改写字段名或新增字段；
+            4. 即使候选人回答为空、过短或答非所问，也必须返回全部字段，分数可为 0；
+            5. 不允许输出 Markdown、代码块、解释说明或注释。
+            输出格式：
+            {
+              "completeness": 0,
+              "levelOfDetail": 0,
+              "accuracy": 0,
+              "logic": 0,
+              "expressionAbility": 0
             }""";
 
     public static final String RECORD_NAME_GENERATE = """

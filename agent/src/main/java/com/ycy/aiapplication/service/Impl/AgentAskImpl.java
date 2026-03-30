@@ -1,3 +1,4 @@
+
 package com.ycy.aiapplication.service.Impl;
 
 import cn.hutool.core.collection.CollectionUtil;
@@ -17,13 +18,12 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.ycy.aiapplication.common.constant.AIPromptConstant;
 import com.ycy.aiapplication.common.constant.AgentRedisConstant;
 import com.ycy.aiapplication.common.enums.AIModelEnum;
+
 import com.ycy.aiapplication.common.pojo.ApiEvaluationResp;
-import com.ycy.aiapplication.common.pojo.EducationExperience;
 import com.ycy.aiapplication.common.pojo.InterviewQuestion;
 import com.ycy.aiapplication.common.pojo.IntervieweeForm;
-import com.ycy.aiapplication.common.pojo.ProjectExperience;
+
 import com.ycy.aiapplication.common.pojo.QuestionWithAnswer;
-import com.ycy.aiapplication.common.pojo.WorkExperience;
 import com.ycy.aiapplication.dao.entity.InterviewRecordDO;
 import com.ycy.aiapplication.dao.mapper.InterviewRecordDOMapper;
 import com.ycy.aiapplication.dto.AgentInterviewReportDTO;
@@ -32,11 +32,15 @@ import com.ycy.aiapplication.dto.req.InterviewQuestionAskReqDTO;
 import com.ycy.aiapplication.dto.req.ReportGenerationReqDTO;
 import com.ycy.aiapplication.dto.resp.AnswerEvaluationRespDTO;
 import com.ycy.aiapplication.dto.resp.InterviewQuestionAskRespDTO;
+
 import com.ycy.aiapplication.dto.resp.ReportGenerationRespDTO;
 import com.ycy.aiapplication.framework.exception.ClientException;
 import com.ycy.aiapplication.framework.exception.RemoteException;
 import com.ycy.aiapplication.service.AgentAsk;
 import com.ycy.aiapplication.user.service.common.context.UserContext;
+import com.ycy.aiapplication.user.service.common.pojo.EducationExperience;
+import com.ycy.aiapplication.user.service.common.pojo.ProjectExperience;
+import com.ycy.aiapplication.user.service.common.pojo.WorkExperience;
 import com.ycy.aiapplication.user.service.dao.entity.IntervieweeFormDO;
 import com.ycy.aiapplication.user.service.dao.mapper.IntervieweeFormDOMapper;
 import lombok.RequiredArgsConstructor;
@@ -45,17 +49,21 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -63,15 +71,31 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class AgentAskImpl implements AgentAsk {
 
+    private static final int AI_TASK_PARALLELISM = Math.max(2, Math.min(4, Runtime.getRuntime().availableProcessors()));
+
+    private static final int AI_TASK_QUEUE_CAPACITY = 64;
+
+    private static final int MODEL_MAX_ATTEMPTS = 2;
+
+    private static final int MIN_ANSWER_LENGTH_FOR_AI = 12;
+
+    private static final String FALLBACK_COMMENT_PREFIX = "【系统兜底】";
+
     @Value("${ai-application.agent.api.key:}")
     private String apiKey;
 
-    private final ExecutorService executorService = new ThreadPoolExecutor(
-            Runtime.getRuntime().availableProcessors(),
-            Runtime.getRuntime().availableProcessors() * 2,
+    /**
+     * AI 调用以网络 I/O 为主。
+     * 使用固定并发度 + 有界队列，避免旧方案在高峰期出现请求线程回退执行、
+     * CompletionException 级联放大以及并发度失控的问题。
+     */
+    private final ExecutorService aiTaskExecutor = new ThreadPoolExecutor(
+            AI_TASK_PARALLELISM,
+            AI_TASK_PARALLELISM,
             60L,
             TimeUnit.SECONDS,
-            new SynchronousQueue<>(),
+            new LinkedBlockingQueue<>(AI_TASK_QUEUE_CAPACITY),
+            new NamedThreadFactory("agent-ai-"),
             new ThreadPoolExecutor.CallerRunsPolicy()
     );
 
@@ -145,24 +169,226 @@ public class AgentAskImpl implements AgentAsk {
 
     @Override
     public AnswerEvaluationRespDTO singleQuestionAnswerEvaluation(QuestionWithAnswer requestParam) {
+        return evaluateSingleQuestionWithStructuredFlow(requestParam);
+    }
+
+    @Override
+    public List<AnswerEvaluationRespDTO> answersEvaluationByAsync(List<QuestionWithAnswer> requestParams) {
+        return evaluateAnswersWithInvokeAll(requestParams);
+    }
+
+    /**
+     * 新评分链路的核心入口。
+     * 设计目标：
+     * 1. 评语与分数分离建模，分别使用不同模型；
+     * 2. 任一子阶段异常时只影响当前题目，不影响整批结果；
+     * 3. 所有异常都带上题号、阶段、模型与原始输出片段，便于定位。
+     */
+    private AnswerEvaluationRespDTO evaluateSingleQuestionWithStructuredFlow(QuestionWithAnswer requestParam) {
+        validateQuestionWithAnswer(requestParam);
+
         InterviewQuestion question = requestParam.getQuestion();
-        String answer = requestParam.getAnswer();
-        if (ObjectUtil.isNull(question)) {
-            throw new ClientException("问题不能为空，请检查");
-        }
-        if (question.getLevel() < 0 || question.getLevel() > 2 || StrUtil.isEmpty(question.getQuestionDescription())) {
-            throw new ClientException("问题描述或等级不能为空，请检查");
-        }
-        if (StrUtil.isEmpty(answer)) {
-            throw new ClientException("回答不能为空，请检查");
+        String answer = requestParam.getAnswer().trim();
+        int questionNum = question.getNum();
+        long startTime = System.currentTimeMillis();
+
+        log.info("开始单题评估 questionNum={} level={} answerLength={}",
+                questionNum, question.getLevel(), answer.length());
+
+        if (shouldUseRuleBasedFallback(answer)) {
+            log.warn("单题评估触发短回答兜底 questionNum={} answerLength={}", questionNum, answer.length());
+            return buildShortAnswerFallback(requestParam);
         }
 
+        try {
+            String evaluationInput = buildEvaluationInput(question, answer);
+            String comment = requestEvaluationComment(questionNum, evaluationInput);
+            EvaluationScorePayload scorePayload = requestEvaluationScore(questionNum, evaluationInput, answer);
+
+            ApiEvaluationResp apiEvaluationResp = ApiEvaluationResp.builder()
+                    .comment(comment)
+                    .completeness(scorePayload.getCompleteness())
+                    .levelOfDetail(scorePayload.getLevelOfDetail())
+                    .accuracy(scorePayload.getAccuracy())
+                    .logic(scorePayload.getLogic())
+                    .expressionAbility(scorePayload.getExpressionAbility())
+                    .build();
+            normalizeEvaluationResp(apiEvaluationResp);
+
+            log.info("单题评估完成 questionNum={} accuracy={} completeness={} detail={} logic={} expression={} costMs={} \n",
+                    questionNum,
+                    apiEvaluationResp.getAccuracy(),
+                    apiEvaluationResp.getCompleteness(),
+                    apiEvaluationResp.getLevelOfDetail(),
+                    apiEvaluationResp.getLogic(),
+                    apiEvaluationResp.getExpressionAbility(),
+                    System.currentTimeMillis() - startTime);
+            return new AnswerEvaluationRespDTO(requestParam, apiEvaluationResp);
+        } catch (Exception ex) {
+            log.error("单题评估主流程异常 questionNum={} costMs={}",
+                    questionNum, System.currentTimeMillis() - startTime, ex);
+            return buildModelFailureFallback(requestParam, "模型评估异常，已按保守策略完成评分。");
+        }
+    }
+
+    /**
+     * 批量评分改为 invokeAll：
+     * 1. 提交与收集语义更稳定；
+     * 2. 不再出现 CompletableFuture 嵌套异常包装；
+     * 3. 单题失败时直接落到兜底，不会导致整批 join 失败。
+     */
+    private List<AnswerEvaluationRespDTO> evaluateAnswersWithInvokeAll(List<QuestionWithAnswer> requestParams) {
+        if (requestParams == null) {
+            throw new ClientException("评估参数不足，请检查");
+        }
+        if (CollectionUtil.isEmpty(requestParams)) {
+            return Collections.emptyList();
+        }
+
+        long startTime = System.currentTimeMillis();
+        log.info("开始批量评估 total={} parallelism={} queueCapacity={}",
+                requestParams.size(), AI_TASK_PARALLELISM, AI_TASK_QUEUE_CAPACITY);
+
+        List<Callable<AnswerEvaluationRespDTO>> tasks = requestParams.stream()
+                .map(each -> (Callable<AnswerEvaluationRespDTO>) () -> evaluateQuestionSafely(each))
+                .toList();
+
+        List<Future<AnswerEvaluationRespDTO>> futures;
+        try {
+            futures = aiTaskExecutor.invokeAll(tasks);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            log.error("批量评估任务提交被中断 total={}", requestParams.size(), ex);
+            return buildInterruptedBatchFallback(requestParams);
+        }
+
+        List<AnswerEvaluationRespDTO> resultList = new ArrayList<>(requestParams.size());
+        for (int i = 0; i < futures.size(); i++) {
+            QuestionWithAnswer requestParam = requestParams.get(i);
+            try {
+                resultList.add(futures.get(i).get());
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                log.error("批量评估结果获取被中断 questionNum={}", requestParam.getQuestion().getNum(), ex);
+                resultList.add(buildModelFailureFallback(requestParam, "评估任务被中断，已按保守策略完成评分。"));
+            } catch (ExecutionException ex) {
+                log.error("批量评估结果获取异常 questionNum={}", requestParam.getQuestion().getNum(), ex);
+                resultList.add(buildModelFailureFallback(requestParam, "评估任务执行异常，已按保守策略完成评分。"));
+            }
+        }
+
+        resultList.sort(Comparator.comparingInt(each -> each.getQuestion().getNum()));
+        long fallbackCount = resultList.stream().filter(this::isFallbackEvaluation).count();
+        log.info("批量评估完成 total={} fallbackCount={} costMs={}",
+                resultList.size(), fallbackCount, System.currentTimeMillis() - startTime);
+        return resultList;
+    }
+
+    private AnswerEvaluationRespDTO evaluateQuestionSafely(QuestionWithAnswer requestParam) {
+        try {
+            return evaluateSingleQuestionWithStructuredFlow(requestParam);
+        } catch (Exception ex) {
+            int questionNum = requestParam != null && requestParam.getQuestion() != null
+                    ? requestParam.getQuestion().getNum() : -1;
+            log.error("单题评估任务未捕获异常 questionNum={}", questionNum, ex);
+            return buildModelFailureFallback(requestParam, "评估流程异常终止，已按保守策略完成评分。");
+        }
+    }
+
+    private void validateQuestionWithAnswer(QuestionWithAnswer requestParam) {
+        if (ObjectUtil.isNull(requestParam) || ObjectUtil.isNull(requestParam.getQuestion())) {
+            throw new ClientException("问题不能为空，请检查");
+        }
+        InterviewQuestion question = requestParam.getQuestion();
+        if (question.getLevel() < 0 || question.getLevel() > 2 || StrUtil.isBlank(question.getQuestionDescription())) {
+            throw new ClientException("问题描述或等级不能为空，请检查");
+        }
+        if (StrUtil.isBlank(requestParam.getAnswer())) {
+            throw new ClientException("回答不能为空，请检查");
+        }
+    }
+
+    /**
+     * 判断当前用户回答是否过短、且意图为“不会”等类似词句
+     * @param answer  用户回答
+     */
+    private boolean shouldUseRuleBasedFallback(String answer) {
+        String normalized = answer.replaceAll("\\s+", "");
+        if (normalized.length() < MIN_ANSWER_LENGTH_FOR_AI) {
+            return true;
+        }
+        return Arrays.asList("不知道", "不会", "不清楚", "无", "略", "跳过", "未作答", "没有")
+                .contains(normalized);
+    }
+
+    /**
+     * 将题目信息统一收敛为 JSON 文本，确保两个模型使用完全一致的输入语义。
+     */
+    private String buildEvaluationInput(InterviewQuestion question, String answer) {
         JSONObject jsonObject = new JSONObject();
         jsonObject.put("题目难度", question.getLevel());
         jsonObject.put("题目描述", question.getQuestionDescription());
         jsonObject.put("面试对象回答", answer);
-        String json = jsonObject.toJSONString();
+        return jsonObject.toJSONString();
+    }
 
+    private String requestEvaluationComment(int questionNum, String evaluationInput) {
+        String model = AIModelEnum.EVALUATION_COMMENT_AI_MODEL.getModel();
+        for (int attempt = 1; attempt <= MODEL_MAX_ATTEMPTS; attempt++) {
+            try {
+                String rawContent = callModelForMessage(model,
+                        evaluationInput + AIPromptConstant.ANSWER_COMMENT_GIVE,
+                        questionNum, "evaluation-comment", attempt);
+                String comment = parseCommentPayload(rawContent);
+                log.info("评语生成成功 questionNum={} attempt={} comment={}",
+                        questionNum, attempt, truncateForLog(comment));
+                return comment;
+            } catch (Exception ex) {
+                log.warn("评语生成失败 questionNum={} model={} attempt={}",
+                        questionNum, model, attempt, ex);
+                if (isNonRetryableModelException(ex)) {
+                    break;
+                }
+            }
+        }
+        return FALLBACK_COMMENT_PREFIX + "评语模型输出异常，建议结合原回答人工复核。";
+    }
+
+    private EvaluationScorePayload requestEvaluationScore(int questionNum, String evaluationInput, String answer) {
+        String model = AIModelEnum.EVALUATION_SCORE_AI_MODEL.getModel();
+        for (int attempt = 1; attempt <= MODEL_MAX_ATTEMPTS; attempt++) {
+            try {
+                String rawContent = callModelForMessage(model,
+                        evaluationInput + AIPromptConstant.ANSWER_SCORE_GIVE,
+                        questionNum, "evaluation-score", attempt);
+                EvaluationScorePayload payload = parseScorePayload(rawContent);
+                log.info("打分生成成功 questionNum={} attempt={} accuracy={} completeness={} detail={} logic={} expression={}",
+                        questionNum, attempt, payload.getAccuracy(), payload.getCompleteness(),
+                        payload.getLevelOfDetail(), payload.getLogic(), payload.getExpressionAbility());
+                return payload;
+            } catch (Exception ex) {
+                log.warn("打分生成失败 questionNum={} model={} attempt={}",
+                        questionNum, model, attempt, ex);
+                if (isNonRetryableModelException(ex)) {
+                    break;
+                }
+            }
+        }
+
+        EvaluationScorePayload heuristicScore = buildHeuristicScorePayload(answer);
+        log.warn("打分模型多次失败，启用启发式兜底 questionNum={} accuracy={} completeness={} detail={} logic={} expression={}",
+                questionNum,
+                heuristicScore.getAccuracy(),
+                heuristicScore.getCompleteness(),
+                heuristicScore.getLevelOfDetail(),
+                heuristicScore.getLogic(),
+                heuristicScore.getExpressionAbility());
+        return heuristicScore;
+    }
+
+    private String callModelForMessage(String model, String userContent, int questionNum, String stage, int attempt)
+            throws NoApiKeyException, ApiException, InputRequiredException {
+        long startTime = System.currentTimeMillis();
         Generation generation = new Generation();
         Message systemMsg = Message.builder()
                 .role(Role.SYSTEM.getValue())
@@ -170,63 +396,211 @@ public class AgentAskImpl implements AgentAsk {
                 .build();
         Message userMsg = Message.builder()
                 .role(Role.USER.getValue())
-                .content(json + AIPromptConstant.ANSWER_POINT_GIVE_V2)
+                .content(userContent)
                 .build();
         GenerationParam param = GenerationParam.builder()
                 .apiKey(apiKey)
-                .model(AIModelEnum.EVALUATION_AI_MODEL.getModel())
+                .model(model)
                 .messages(Arrays.asList(systemMsg, userMsg))
                 .resultFormat(GenerationParam.ResultFormat.MESSAGE)
                 .build();
 
-        try {
-            GenerationResult result = generation.call(param);
-            String answerJson = result.getOutput().getChoices().get(0).getMessage().getContent();
-            log.info("消息内容: {}", answerJson);
-            ApiEvaluationResp apiEvaluationResp = JSONObject.parseObject(answerJson, ApiEvaluationResp.class);
-            normalizeEvaluationResp(apiEvaluationResp);
-            return new AnswerEvaluationRespDTO(requestParam, apiEvaluationResp);
-        } catch (Exception ex) {
-            if (ex instanceof NoApiKeyException) {
-                log.error("缺少 apiKey: {}", ex.getMessage());
-            } else if (ex instanceof ApiException) {
-                log.error("调用 AI 接口失败: {}", ex.getMessage());
-            } else if (ex instanceof InputRequiredException) {
-                log.error("请求参数缺失: {}", ex.getMessage());
-            } else {
-                log.error("回答评估异常: {}", ex.getMessage(), ex);
-            }
-            throw new ClientException("系统异常，请稍后重试");
-        }
+        log.info("模型调用开始 questionNum={} stage={} model={} attempt={}",
+                questionNum, stage, model, attempt);
+        GenerationResult result = generation.call(param);
+        String content = result.getOutput().getChoices().get(0).getMessage().getContent();
+        log.info("模型调用完成 questionNum={} stage={} model={} attempt={} costMs={} raw={}",
+                questionNum, stage, model, attempt, System.currentTimeMillis() - startTime, truncateForLog(content));
+        return content;
     }
 
-    @Override
-    public List<AnswerEvaluationRespDTO> answersEvaluationByAsync(List<QuestionWithAnswer> requestParams) {
-        if (requestParams == null) {
-            throw new ClientException("评估参数不足，请检查");
+    private String parseCommentPayload(String rawContent) {
+        JSONObject jsonObject = JSONObject.parseObject(extractFirstJsonObject(rawContent));
+        String comment = jsonObject.getString("comment");
+        if (StrUtil.isBlank(comment)) {
+            throw new IllegalArgumentException("comment 字段缺失");
+        }
+        return comment.trim();
+    }
+
+    private EvaluationScorePayload parseScorePayload(String rawContent) {
+        JSONObject jsonObject = JSONObject.parseObject(extractFirstJsonObject(rawContent));
+        return new EvaluationScorePayload(
+                readRequiredScore(jsonObject, "completeness"),
+                readRequiredScore(jsonObject, "levelOfDetail"),
+                readRequiredScore(jsonObject, "accuracy"),
+                readRequiredScore(jsonObject, "logic"),
+                readRequiredScore(jsonObject, "expressionAbility")
+        );
+    }
+
+    private int readRequiredScore(JSONObject jsonObject, String fieldName) {
+        Integer score = jsonObject.getInteger(fieldName);
+        if (score == null) {
+            throw new IllegalArgumentException("缺少字段: " + fieldName);
+        }
+        return normalizeSingleScore(score);
+    }
+
+    private String extractFirstJsonObject(String rawContent) {
+        String normalized = normalizeModelContent(rawContent);
+        int start = normalized.indexOf('{');
+        if (start < 0) {
+            throw new IllegalArgumentException("未找到 JSON 对象起始符");
         }
 
-        List<CompletableFuture<AnswerEvaluationRespDTO>> evaluationTasks = requestParams.stream()
-                .map(each -> {
-                    int index = each.getQuestion().getNum();
-                    return CompletableFuture
-                            .supplyAsync(() -> singleQuestionAnswerEvaluation(each), executorService)
-                            .exceptionally(ex -> {
-                                log.error("第 {} 题评估失败: {}", index, ex.getMessage());
-                                throw new CompletionException(ex);
-                            });
-                })
-                .toList();
+        int depth = 0;
+        boolean inQuotes = false;
+        boolean escaped = false;
+        for (int i = start; i < normalized.length(); i++) {
+            char current = normalized.charAt(i);
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+            if (current == '\\') {
+                escaped = true;
+                continue;
+            }
+            if (current == '"') {
+                inQuotes = !inQuotes;
+                continue;
+            }
+            if (inQuotes) {
+                continue;
+            }
+            if (current == '{') {
+                depth++;
+            } else if (current == '}') {
+                depth--;
+                if (depth == 0) {
+                    return normalized.substring(start, i + 1);
+                }
+            }
+        }
+        throw new IllegalArgumentException("JSON 对象不完整");
+    }
 
-        return CompletableFuture.allOf(evaluationTasks.toArray(CompletableFuture[]::new))
-                .thenApply(allTasks -> evaluationTasks.stream()
-                        .map(CompletableFuture::join)
-                        .collect(Collectors.toList()))
-                .thenApply(list -> {
-                    list.sort(Comparator.comparingInt(each -> each.getQuestion().getNum()));
-                    return list;
-                })
-                .join();
+    private String normalizeModelContent(String rawContent) {
+        String normalized = StrUtil.blankToDefault(rawContent, "").trim();
+        normalized = normalized.replace("```json", "");
+        normalized = normalized.replace("```JSON", "");
+        normalized = normalized.replace("```", "");
+        return normalized.trim();
+    }
+
+    private boolean isNonRetryableModelException(Exception ex) {
+        return ex instanceof NoApiKeyException || ex instanceof InputRequiredException;
+    }
+
+    /**
+     * 当分数模型持续异常时，使用回答长度与技术关键词命中率生成保守分数。
+     * 该兜底只用于“模型不可用”场景，因此 accuracy 被严格限制在较低区间，避免误判为高分。
+     */
+    private EvaluationScorePayload buildHeuristicScorePayload(String answer) {
+        String normalized = answer.replaceAll("\\s+", "");
+        int length = normalized.length();
+        if (length < MIN_ANSWER_LENGTH_FOR_AI) {
+            return new EvaluationScorePayload(0, 0, 0, 0, 0);
+        }
+
+        int keywordHits = countTechnicalKeywordHits(normalized.toLowerCase());
+        boolean structured = containsAny(normalized, "首先", "其次", "最后", "因为", "所以", "方案", "实现", "步骤", "1.", "2.", "3.");
+
+        int completeness = Math.min(8, scoreByLength(length, 2, 4, 5, 6, 7) + Math.min(1, keywordHits / 3));
+        int levelOfDetail = Math.min(8, scoreByLength(length, 1, 3, 4, 5, 6) + (structured ? 1 : 0));
+        int accuracy = Math.min(4, scoreByLength(length, 0, 1, 2, 3, 3) + Math.min(1, keywordHits / 4));
+        int logic = Math.min(7, scoreByLength(length, 1, 2, 3, 4, 5) + (structured ? 2 : 0));
+        int expressionAbility = Math.min(7, scoreByLength(length, 1, 2, 3, 4, 5) + (structured ? 1 : 0));
+        return new EvaluationScorePayload(completeness, levelOfDetail, accuracy, logic, expressionAbility);
+    }
+
+    private int countTechnicalKeywordHits(String answer) {
+        List<String> keywords = Arrays.asList(
+                "redis", "mysql", "rocketmq", "rabbitmq", "spring", "java",
+                "分布式", "缓存", "数据库", "事务", "锁", "一致性", "幂等", "消息队列"
+        );
+        int hits = 0;
+        for (String keyword : keywords) {
+            if (answer.contains(keyword)) {
+                hits++;
+            }
+        }
+        return hits;
+    }
+
+    private boolean containsAny(String text, String... fragments) {
+        for (String fragment : fragments) {
+            if (text.contains(fragment)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private int scoreByLength(int length, int shortScore, int mediumScore, int longScore, int longerScore, int richScore) {
+        if (length < 20) {
+            return shortScore;
+        }
+        if (length < 60) {
+            return mediumScore;
+        }
+        if (length < 120) {
+            return longScore;
+        }
+        if (length < 240) {
+            return longerScore;
+        }
+        return richScore;
+    }
+
+    private AnswerEvaluationRespDTO buildShortAnswerFallback(QuestionWithAnswer requestParam) {
+        return buildFallbackEvaluation(requestParam,
+                FALLBACK_COMMENT_PREFIX + "回答内容过短或未有效作答，系统按低分处理。",
+                new EvaluationScorePayload(0, 0, 0, 0, 0));
+    }
+
+    private AnswerEvaluationRespDTO buildModelFailureFallback(QuestionWithAnswer requestParam, String reason) {
+        if (requestParam == null) {
+            throw new ClientException("评估参数不足，请检查");
+        }
+        EvaluationScorePayload heuristicScore = buildHeuristicScorePayload(StrUtil.blankToDefault(requestParam.getAnswer(), ""));
+        return buildFallbackEvaluation(requestParam, FALLBACK_COMMENT_PREFIX + reason, heuristicScore);
+    }
+
+    private AnswerEvaluationRespDTO buildFallbackEvaluation(QuestionWithAnswer requestParam, String comment,
+                                                            EvaluationScorePayload scorePayload) {
+        ApiEvaluationResp apiEvaluationResp = ApiEvaluationResp.builder()
+                .comment(comment)
+                .completeness(scorePayload.getCompleteness())
+                .levelOfDetail(scorePayload.getLevelOfDetail())
+                .accuracy(scorePayload.getAccuracy())
+                .logic(scorePayload.getLogic())
+                .expressionAbility(scorePayload.getExpressionAbility())
+                .build();
+        normalizeEvaluationResp(apiEvaluationResp);
+        return new AnswerEvaluationRespDTO(requestParam, apiEvaluationResp);
+    }
+
+    private List<AnswerEvaluationRespDTO> buildInterruptedBatchFallback(List<QuestionWithAnswer> requestParams) {
+        return requestParams.stream()
+                .map(each -> buildModelFailureFallback(each, "批量评估被中断，已按保守策略完成评分。"))
+                .sorted(Comparator.comparingInt(each -> each.getQuestion().getNum()))
+                .collect(Collectors.toList());
+    }
+
+    private boolean isFallbackEvaluation(AnswerEvaluationRespDTO dto) {
+        return dto != null
+                && dto.getApiResp() != null
+                && StrUtil.startWith(dto.getApiResp().getComment(), FALLBACK_COMMENT_PREFIX);
+    }
+
+    private String truncateForLog(String content) {
+        String normalized = StrUtil.blankToDefault(content, "").replaceAll("\\s+", " ").trim();
+        if (normalized.length() <= 300) {
+            return normalized;
+        }
+        return normalized.substring(0, 300) + "...";
     }
 
     private String buildFormDescription(IntervieweeForm form) {
@@ -323,6 +697,16 @@ public class AgentAskImpl implements AgentAsk {
 
     @Override
     public ReportGenerationRespDTO generateInterviewReportAndRecordName(ReportGenerationReqDTO requestParam) {
+        return generateInterviewReportWithFutureTasks(requestParam);
+    }
+
+    /**
+     * 报告生成侧也改为 Future 协调：
+     * 1. 仅保留必要并行任务；
+     * 2. 每个任务内部自带重试和兜底；
+     * 3. Future 获取失败时仍然返回可展示结果。
+     */
+    private ReportGenerationRespDTO generateInterviewReportWithFutureTasks(ReportGenerationReqDTO requestParam) {
         if (ObjectUtil.isEmpty(requestParam)) {
             throw new ClientException("参数不能为空");
         }
@@ -330,9 +714,56 @@ public class AgentAskImpl implements AgentAsk {
             throw new ClientException("回答评估结果不能为空");
         }
 
+        long startTime = System.currentTimeMillis();
         Long userId = getCurrentUserId();
         IntervieweeForm form = getIntervieweeFormById(requestParam.getFormId());
         InterviewDimensionScoreDTO dimensionScoreDTO = calculateDimensionScore(requestParam.getAnswerEvaluationRespS());
+        JSONObject reportInput = buildReportInput(requestParam, form, dimensionScoreDTO);
+
+        Future<AgentInterviewReportDTO> reportFuture = aiTaskExecutor.submit(
+                () -> generateInterviewReportSafely(reportInput, dimensionScoreDTO, form));
+        Future<String> recordNameFuture = aiTaskExecutor.submit(
+                () -> generateRecordNameSafely(form));
+
+        AgentInterviewReportDTO reportDTO = waitForReportFuture(reportFuture, form, dimensionScoreDTO);
+        String recordName = waitForRecordNameFuture(recordNameFuture, form);
+
+        String interviewProcessRecord = JSON.toJSONString(requestParam.getAnswerEvaluationRespS());
+        String interviewKeywords = JSON.toJSONString(form.getProfessionalSkills());
+        InterviewRecordDO recordDO = InterviewRecordDO.builder()
+                .recordName(recordName)
+                .userId(userId)
+                .interviewProcessRecord(interviewProcessRecord)
+                .interviewKeywords(interviewKeywords)
+                .summaryReportRecord(JSON.toJSONString(reportDTO.getSummaryReport()))
+                .adviceReportRecord(JSON.toJSONString(reportDTO.getAdviceReport()))
+                .build();
+
+        recordDO.setInterviewPoint(dimensionScoreDTO.getInterviewPoint());
+        recordDO.setAccuracyScore(dimensionScoreDTO.getAccuracyScore());
+        recordDO.setCompletenessScore(dimensionScoreDTO.getCompletenessScore());
+        recordDO.setLevelOfDetailScore(dimensionScoreDTO.getLevelOfDetailScore());
+        recordDO.setLogicScore(dimensionScoreDTO.getLogicScore());
+        recordDO.setExpressionAbilityScore(dimensionScoreDTO.getExpressionAbilityScore());
+        interviewRecordDOMapper.insert(recordDO);
+
+        String zSetKey = String.format(AgentRedisConstant.INTERVIEW_RECORD_ID_WITH_NAME_CACHE_KEY, userId);
+        Long id = recordDO.getId();
+        Date now = recordDO.getCreateTime();
+        String idAndName = id + "|" + recordName + "|" + dimensionScoreDTO.getInterviewPoint() + "|" + now.getTime();
+        stringRedisTemplate.opsForZSet().add(zSetKey, idAndName, now.getTime());
+
+        log.info("报告生成完成 formId={} recordId={} recordName={} costMs={}",
+                requestParam.getFormId(), id, recordName, System.currentTimeMillis() - startTime);
+        return ReportGenerationRespDTO.builder()
+                .date(now)
+                .recordName(recordName)
+                .reportDTO(reportDTO)
+                .build();
+    }
+
+    private JSONObject buildReportInput(ReportGenerationReqDTO requestParam, IntervieweeForm form,
+                                        InterviewDimensionScoreDTO dimensionScoreDTO) {
         JSONObject jsonObject = new JSONObject();
         jsonObject.put("form", form);
         jsonObject.put("evaluations", requestParam.getAnswerEvaluationRespS());
@@ -342,88 +773,165 @@ public class AgentAskImpl implements AgentAsk {
         jsonObject.put("levelOfDetailScore", dimensionScoreDTO.getLevelOfDetailScore());
         jsonObject.put("logicScore", dimensionScoreDTO.getLogicScore());
         jsonObject.put("expressionAbilityScore", dimensionScoreDTO.getExpressionAbilityScore());
-
-        CompletableFuture<AgentInterviewReportDTO> reportFuture = CompletableFuture
-                .supplyAsync(() -> generateInterviewReport(jsonObject, dimensionScoreDTO), executorService);
-        CompletableFuture<String> recordNameFuture = CompletableFuture
-                .supplyAsync(() -> generateRecordName(form), executorService);
-
-        return reportFuture.thenCombine(recordNameFuture, (apiInterviewReport, recordName) -> {
-            String interviewProcessRecord = JSON.toJSONString(requestParam.getAnswerEvaluationRespS());
-            String interviewKeywords = JSON.toJSONString(form.getProfessionalSkills());
-            InterviewRecordDO recordDO = InterviewRecordDO.builder()
-                    .recordName(recordName)
-                    .userId(userId)
-                    .interviewProcessRecord(interviewProcessRecord)
-                    .interviewKeywords(interviewKeywords)
-                    .summaryReportRecord(JSON.toJSONString(apiInterviewReport.getSummaryReport()))
-                    .adviceReportRecord(JSON.toJSONString(apiInterviewReport.getAdviceReport()))
-                    .build();
-
-            recordDO.setInterviewPoint(dimensionScoreDTO.getInterviewPoint());
-            recordDO.setAccuracyScore(dimensionScoreDTO.getAccuracyScore());
-            recordDO.setCompletenessScore(dimensionScoreDTO.getCompletenessScore());
-            recordDO.setLevelOfDetailScore(dimensionScoreDTO.getLevelOfDetailScore());
-            recordDO.setLogicScore(dimensionScoreDTO.getLogicScore());
-            recordDO.setExpressionAbilityScore(dimensionScoreDTO.getExpressionAbilityScore());
-            interviewRecordDOMapper.insert(recordDO);
-
-            String zSetKey = String.format(AgentRedisConstant.INTERVIEW_RECORD_ID_WITH_NAME_CACHE_KEY, userId);
-            Long id = recordDO.getId();
-            Date now = recordDO.getCreateTime();
-            String idAndName = id + "|" + recordName + "|" + dimensionScoreDTO.getInterviewPoint() + "|" + now.getTime();
-            stringRedisTemplate.opsForZSet().add(zSetKey, idAndName, now.getTime());
-
-            return ReportGenerationRespDTO.builder()
-                    .date(now)
-                    .recordName(recordName)
-                    .reportDTO(apiInterviewReport)
-                    .build();
-        }).join();
+        return jsonObject;
     }
 
-    private AgentInterviewReportDTO generateInterviewReport(JSONObject jsonObject, InterviewDimensionScoreDTO dimensionScoreDTO) {
-        Generation generation = new Generation();
-        Message systemMsg = Message.builder()
-                .role(Role.SYSTEM.getValue())
-                .content(AIPromptConstant.SYSTEM_ROLE_CONTENT)
-                .build();
-        Message userMsg = Message.builder()
-                .role(Role.USER.getValue())
-                .content(AIPromptConstant.SUMMARY_ASK_V2 + jsonObject.toJSONString())
-                .build();
-        GenerationParam param = GenerationParam.builder()
-                .apiKey(apiKey)
-                .model(AIModelEnum.SUMMARY_GENERATE_AI_MODEL.getModel())
-                .messages(Arrays.asList(systemMsg, userMsg))
-                .resultFormat(GenerationParam.ResultFormat.MESSAGE)
-                .build();
-
+    private AgentInterviewReportDTO waitForReportFuture(Future<AgentInterviewReportDTO> future, IntervieweeForm form,
+                                                        InterviewDimensionScoreDTO dimensionScoreDTO) {
         try {
-            GenerationResult result = generation.call(param);
-            String answerJson = result.getOutput().getChoices().get(0).getMessage().getContent();
-            log.info("消息内容: {}", answerJson);
-            AgentInterviewReportDTO agentInterviewReport = JSONObject.parseObject(answerJson, AgentInterviewReportDTO.class);
-            agentInterviewReport.setInterviewPoint(dimensionScoreDTO.getInterviewPoint());
-            agentInterviewReport.setAccuracyScore(dimensionScoreDTO.getAccuracyScore());
-            agentInterviewReport.setCompletenessScore(dimensionScoreDTO.getCompletenessScore());
-            agentInterviewReport.setLevelOfDetailScore(dimensionScoreDTO.getLevelOfDetailScore());
-            agentInterviewReport.setLogicScore(dimensionScoreDTO.getLogicScore());
-            agentInterviewReport.setExpressionAbilityScore(dimensionScoreDTO.getExpressionAbilityScore());
-            return agentInterviewReport;
-        } catch (Exception ex) {
-            if (ex instanceof NoApiKeyException) {
-                log.error("缺少 apiKey: {}", ex.getMessage());
-            } else if (ex instanceof ApiException) {
-                log.error("调用 AI 接口失败: {}", ex.getMessage());
-            } else if (ex instanceof InputRequiredException) {
-                log.error("请求参数缺失: {}", ex.getMessage());
-            } else {
-                log.error("生成面试报告异常: {}", ex.getMessage(), ex);
-            }
-            throw new ClientException("系统异常，请稍后重试");
+            return future.get();
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            log.error("等待面试报告结果被中断 formJobIntention={}", form.getJobIntention(), ex);
+            return buildFallbackReport(form, dimensionScoreDTO, "报告任务被中断，系统已生成兜底报告。");
+        } catch (ExecutionException ex) {
+            log.error("等待面试报告结果异常 formJobIntention={}", form.getJobIntention(), ex);
+            return buildFallbackReport(form, dimensionScoreDTO, "报告任务执行异常，系统已生成兜底报告。");
         }
     }
+
+    private String waitForRecordNameFuture(Future<String> future, IntervieweeForm form) {
+        try {
+            return future.get();
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            log.error("等待记录名结果被中断 formJobIntention={}", form.getJobIntention(), ex);
+            return buildFallbackRecordName(form);
+        } catch (ExecutionException ex) {
+            log.error("等待记录名结果异常 formJobIntention={}", form.getJobIntention(), ex);
+            return buildFallbackRecordName(form);
+        }
+    }
+
+    private AgentInterviewReportDTO generateInterviewReportSafely(JSONObject jsonObject,
+                                                                  InterviewDimensionScoreDTO dimensionScoreDTO,
+                                                                  IntervieweeForm form) {
+        String model = AIModelEnum.SUMMARY_GENERATE_AI_MODEL.getModel();
+        for (int attempt = 1; attempt <= MODEL_MAX_ATTEMPTS; attempt++) {
+            try {
+                String rawContent = callModelForMessage(
+                        model,
+                        AIPromptConstant.SUMMARY_ASK_V2 + jsonObject.toJSONString(),
+                        -1,
+                        "interview-report",
+                        attempt
+                );
+                AgentInterviewReportDTO reportDTO = parseInterviewReport(rawContent, dimensionScoreDTO);
+                log.info("面试报告生成成功 model={} attempt={} summary={} advice={}",
+                        model, attempt, truncateForLog(reportDTO.getSummaryReport()), truncateForLog(reportDTO.getAdviceReport()));
+                return reportDTO;
+            } catch (Exception ex) {
+                log.warn("面试报告生成失败 model={} attempt={} formJobIntention={}",
+                        model, attempt, form.getJobIntention(), ex);
+                if (isNonRetryableModelException(ex)) {
+                    break;
+                }
+            }
+        }
+        return buildFallbackReport(form, dimensionScoreDTO, "模型报告生成异常，系统已生成兜底报告。");
+    }
+
+    private AgentInterviewReportDTO parseInterviewReport(String rawContent, InterviewDimensionScoreDTO dimensionScoreDTO) {
+        JSONObject jsonObject = JSONObject.parseObject(extractFirstJsonObject(rawContent));
+        String summaryReport = jsonObject.getString("summaryReport");
+        String adviceReport = jsonObject.getString("adviceReport");
+        if (StrUtil.isBlank(summaryReport) || StrUtil.isBlank(adviceReport)) {
+            throw new IllegalArgumentException("报告字段缺失");
+        }
+
+        AgentInterviewReportDTO reportDTO = AgentInterviewReportDTO.builder()
+                .summaryReport(summaryReport.trim())
+                .adviceReport(adviceReport.trim())
+                .build();
+        reportDTO.setInterviewPoint(dimensionScoreDTO.getInterviewPoint());
+        reportDTO.setAccuracyScore(dimensionScoreDTO.getAccuracyScore());
+        reportDTO.setCompletenessScore(dimensionScoreDTO.getCompletenessScore());
+        reportDTO.setLevelOfDetailScore(dimensionScoreDTO.getLevelOfDetailScore());
+        reportDTO.setLogicScore(dimensionScoreDTO.getLogicScore());
+        reportDTO.setExpressionAbilityScore(dimensionScoreDTO.getExpressionAbilityScore());
+        return reportDTO;
+    }
+
+    private AgentInterviewReportDTO buildFallbackReport(IntervieweeForm form,
+                                                        InterviewDimensionScoreDTO dimensionScoreDTO,
+                                                        String reason) {
+        String summaryReport = String.format(
+                "%s候选人的本次面试总分为 %d 分，准确度 %d、完整度 %d、细节度 %d、逻辑度 %d、表达能力 %d。系统未能稳定生成完整自然语言报告，建议结合单题评分结果进行人工复核。",
+                FALLBACK_COMMENT_PREFIX,
+                dimensionScoreDTO.getInterviewPoint(),
+                dimensionScoreDTO.getAccuracyScore(),
+                dimensionScoreDTO.getCompletenessScore(),
+                dimensionScoreDTO.getLevelOfDetailScore(),
+                dimensionScoreDTO.getLogicScore(),
+                dimensionScoreDTO.getExpressionAbilityScore()
+        );
+        String adviceReport = String.format(
+                "%s建议优先围绕目标岗位“%s”补齐核心知识点，并结合项目经历补充更完整的技术方案、关键权衡与落地细节。若需要正式报告，建议在系统负载较低时重新生成。",
+                FALLBACK_COMMENT_PREFIX,
+                StrUtil.blankToDefault(form.getJobIntention(), "目标岗位")
+        );
+
+        AgentInterviewReportDTO reportDTO = AgentInterviewReportDTO.builder()
+                .summaryReport(summaryReport)
+                .adviceReport(adviceReport + " 原因：" + reason)
+                .build();
+        reportDTO.setInterviewPoint(dimensionScoreDTO.getInterviewPoint());
+        reportDTO.setAccuracyScore(dimensionScoreDTO.getAccuracyScore());
+        reportDTO.setCompletenessScore(dimensionScoreDTO.getCompletenessScore());
+        reportDTO.setLevelOfDetailScore(dimensionScoreDTO.getLevelOfDetailScore());
+        reportDTO.setLogicScore(dimensionScoreDTO.getLogicScore());
+        reportDTO.setExpressionAbilityScore(dimensionScoreDTO.getExpressionAbilityScore());
+        return reportDTO;
+    }
+
+    private String generateRecordNameSafely(IntervieweeForm form) {
+        String model = AIModelEnum.NAME_GENERATE_AI_MODEL.getModel();
+        for (int attempt = 1; attempt <= MODEL_MAX_ATTEMPTS; attempt++) {
+            try {
+                String rawContent = callModelForMessage(
+                        model,
+                        AIPromptConstant.RECORD_NAME_GENERATE + JSON.toJSONString(form),
+                        -1,
+                        "record-name",
+                        attempt
+                );
+                String recordName = normalizeRecordName(rawContent);
+                if (StrUtil.isBlank(recordName)) {
+                    throw new IllegalArgumentException("记录名为空");
+                }
+                log.info("记录名生成成功 model={} attempt={} recordName={}", model, attempt, recordName);
+                return recordName;
+            } catch (Exception ex) {
+                log.warn("记录名生成失败 model={} attempt={} formJobIntention={}",
+                        model, attempt, form.getJobIntention(), ex);
+                if (isNonRetryableModelException(ex)) {
+                    break;
+                }
+            }
+        }
+        return buildFallbackRecordName(form);
+    }
+
+    private String normalizeRecordName(String rawContent) {
+        return normalizeModelContent(rawContent)
+                .replace("\"", "")
+                .replace("'", "")
+                .replaceAll("\\s+", "");
+    }
+
+    private String buildFallbackRecordName(IntervieweeForm form) {
+        String jobIntention = StrUtil.blankToDefault(form.getJobIntention(), "面试");
+        String normalized = jobIntention.replaceAll("[^\\p{IsHan}A-Za-z0-9]", "");
+        if (normalized.length() > 8) {
+            normalized = normalized.substring(0, 8);
+        }
+        if (!normalized.endsWith("面试")) {
+            normalized = normalized + "面试";
+        }
+        return normalized;
+    }
+
+
 
     private void normalizeEvaluationResp(ApiEvaluationResp apiEvaluationResp) {
         apiEvaluationResp.setAccuracy(normalizeSingleScore(apiEvaluationResp.getAccuracy()));
@@ -439,43 +947,6 @@ public class AgentAskImpl implements AgentAsk {
 
     private int normalizeTotalScore(double score) {
         return normalizeSingleScore((int) Math.round(score));
-    }
-
-    private String generateRecordName(IntervieweeForm form) {
-        String json = JSON.toJSONString(form);
-        Generation generation = new Generation();
-        Message systemMsg = Message.builder()
-                .role(Role.SYSTEM.getValue())
-                .content(AIPromptConstant.SYSTEM_ROLE_CONTENT)
-                .build();
-        Message userMsg = Message.builder()
-                .role(Role.USER.getValue())
-                .content(AIPromptConstant.RECORD_NAME_GENERATE + json)
-                .build();
-        GenerationParam param = GenerationParam.builder()
-                .apiKey(apiKey)
-                .model(AIModelEnum.NAME_GENERATE_AI_MODEL.getModel())
-                .messages(Arrays.asList(systemMsg, userMsg))
-                .resultFormat(GenerationParam.ResultFormat.MESSAGE)
-                .build();
-
-        try {
-            GenerationResult result = generation.call(param);
-            String answerString = result.getOutput().getChoices().get(0).getMessage().getContent();
-            log.info("消息内容: {}", answerString);
-            return answerString;
-        } catch (Exception ex) {
-            if (ex instanceof NoApiKeyException) {
-                log.error("缺少 apiKey: {}", ex.getMessage());
-            } else if (ex instanceof ApiException) {
-                log.error("调用 AI 接口失败: {}", ex.getMessage());
-            } else if (ex instanceof InputRequiredException) {
-                log.error("请求参数缺失: {}", ex.getMessage());
-            } else {
-                log.error("生成记录名异常: {}", ex.getMessage(), ex);
-            }
-            throw new ClientException("系统异常，请稍后重试");
-        }
     }
 
     private IntervieweeForm getIntervieweeFormById(String formId) {
@@ -543,5 +1014,63 @@ public class AgentAskImpl implements AgentAsk {
             return Collections.emptyList();
         }
         return JSON.parseArray(json, ProjectExperience.class);
+    }
+
+    /**
+     * 评分结果在服务内部以强类型对象流转，避免频繁用 JSONObject 传递字段名。
+     */
+    private static final class EvaluationScorePayload {
+        private final int completeness;
+        private final int levelOfDetail;
+        private final int accuracy;
+        private final int logic;
+        private final int expressionAbility;
+
+        private EvaluationScorePayload(int completeness, int levelOfDetail, int accuracy, int logic, int expressionAbility) {
+            this.completeness = completeness;
+            this.levelOfDetail = levelOfDetail;
+            this.accuracy = accuracy;
+            this.logic = logic;
+            this.expressionAbility = expressionAbility;
+        }
+
+        private int getCompleteness() {
+            return completeness;
+        }
+
+        private int getLevelOfDetail() {
+            return levelOfDetail;
+        }
+
+        private int getAccuracy() {
+            return accuracy;
+        }
+
+        private int getLogic() {
+            return logic;
+        }
+
+        private int getExpressionAbility() {
+            return expressionAbility;
+        }
+    }
+
+    /**
+     * 自定义线程名前缀，方便从日志直接区分批量评分与其他业务线程。
+     */
+    private static final class NamedThreadFactory implements ThreadFactory {
+        private final AtomicInteger sequence = new AtomicInteger(1);
+        private final String prefix;
+
+        private NamedThreadFactory(String prefix) {
+            this.prefix = prefix;
+        }
+
+        @Override
+        public Thread newThread(Runnable runnable) {
+            Thread thread = new Thread(runnable);
+            thread.setName(prefix + sequence.getAndIncrement());
+            return thread;
+        }
     }
 }

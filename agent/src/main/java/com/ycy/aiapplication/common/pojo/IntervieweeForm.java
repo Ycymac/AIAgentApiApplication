@@ -1,5 +1,8 @@
 package com.ycy.aiapplication.common.pojo;
 
+import com.ycy.aiapplication.user.service.common.pojo.EducationExperience;
+import com.ycy.aiapplication.user.service.common.pojo.ProjectExperience;
+import com.ycy.aiapplication.user.service.common.pojo.WorkExperience;
 import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;

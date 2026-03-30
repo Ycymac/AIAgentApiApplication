@@ -13,6 +13,8 @@ public enum AIModelEnum {
     //使用plus模型生成的报告更加精细详尽
     QUESTION_AI_MODEL("qwen-flash"),
     EVALUATION_AI_MODEL("qwen-flash-character"),
+    EVALUATION_COMMENT_AI_MODEL("qwen-flash-character"),
+    EVALUATION_SCORE_AI_MODEL("qwen-flash"),
     SUMMARY_GENERATE_AI_MODEL("qwen-plus"),
     NAME_GENERATE_AI_MODEL("qwen-flash");
 
