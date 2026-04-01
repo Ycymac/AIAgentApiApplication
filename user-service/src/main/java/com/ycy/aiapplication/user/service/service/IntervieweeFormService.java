@@ -26,7 +26,7 @@ public interface IntervieweeFormService {
     /**
      * 删除简历
      */
-    void deleteIntervieweeForm(Long id);
+    void deleteIntervieweeForm(String id);
 
     /**
      * 根据id查询简历

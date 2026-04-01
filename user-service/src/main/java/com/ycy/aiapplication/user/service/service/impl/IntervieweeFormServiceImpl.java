@@ -107,15 +107,13 @@ public class IntervieweeFormServiceImpl implements IntervieweeFormService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void deleteIntervieweeForm(Long id) {
-        if (ObjectUtil.isNull(id)) {
-            throw new ClientException("简历id不能为空，请检查！");
-        }
+    public void deleteIntervieweeForm(String id) {
+        Long formId = parseFormId(id);
         Long userId = getCurrentUserId();
-        IntervieweeFormDO intervieweeFormDO = getIntervieweeFormByIdAndUserId(id, userId);
-        intervieweeFormDOMapper.deleteById(id);
+        IntervieweeFormDO intervieweeFormDO = getIntervieweeFormByIdAndUserId(formId, userId);
+        intervieweeFormDOMapper.deleteById(formId);
         removeFormNameCache(intervieweeFormDO.getId(), intervieweeFormDO.getFormName(), userId);
-        log.info("删除简历成功，userId:{}, formId:{}", userId, id);
+        log.info("删除简历成功，userId:{}, formId:{}", userId, formId);
     }
 
     @Override
@@ -244,6 +242,17 @@ public class IntervieweeFormServiceImpl implements IntervieweeFormService {
         return userId;
     }
 
+    private Long parseFormId(String id) {
+        if (StrUtil.isBlank(id)) {
+            throw new ClientException("简历id不能为空，请检查！");
+        }
+        try {
+            return Long.parseLong(id);
+        } catch (NumberFormatException ex) {
+            throw new ClientException("简历id格式错误，请检查！");
+        }
+    }
+
     private IntervieweeFormDO getIntervieweeFormByIdAndUserId(Long id, Long userId) {
         LambdaQueryWrapper<IntervieweeFormDO> queryWrapper = new LambdaQueryWrapper<IntervieweeFormDO>()
                 .eq(IntervieweeFormDO::getId, id)
@@ -296,22 +305,22 @@ public class IntervieweeFormServiceImpl implements IntervieweeFormService {
     }
 
     private List<String> readStringList(String json) {
-        return readList(json, new TypeReference<List<String>>() {
+        return readList(json, new TypeReference<>() {
         });
     }
 
     private List<EducationExperience> readEducationExperiences(String json) {
-        return readList(json, new TypeReference<List<EducationExperience>>() {
+        return readList(json, new TypeReference<>() {
         });
     }
 
     private List<WorkExperience> readWorkExperiences(String json) {
-        return readList(json, new TypeReference<List<WorkExperience>>() {
+        return readList(json, new TypeReference<>() {
         });
     }
 
     private List<ProjectExperience> readProjectExperiences(String json) {
-        return readList(json, new TypeReference<List<ProjectExperience>>() {
+        return readList(json, new TypeReference<>() {
         });
     }
 

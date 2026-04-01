@@ -14,5 +14,5 @@ import lombok.NoArgsConstructor;
 public class DeleteIntervieweeFormReqDTO {
 
     @Schema(description = "简历id", example = "2031456789012345678")
-    private Long id;
+    private String id;
 }
