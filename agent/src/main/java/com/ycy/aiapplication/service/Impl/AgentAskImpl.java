@@ -177,6 +177,11 @@ public class AgentAskImpl implements AgentAsk {
         return evaluateAnswersWithInvokeAll(requestParams);
     }
 
+    @Override
+    public ReportGenerationRespDTO generateInterviewReportAndRecordName(ReportGenerationReqDTO requestParam) {
+        return generateInterviewReportWithFutureTasks(requestParam);
+    }
+
     /**
      * 新评分链路的核心入口。
      * 设计目标：
@@ -201,10 +206,13 @@ public class AgentAskImpl implements AgentAsk {
         }
 
         try {
+            //构建评估输入
             String evaluationInput = buildEvaluationInput(question, answer);
+            //评语模型生成情景化评语
             String comment = requestEvaluationComment(questionNum, evaluationInput);
+            //评分模型严格按照5维度评分
             EvaluationScorePayload scorePayload = requestEvaluationScore(questionNum, evaluationInput, answer);
-
+            //构建评估整体回答
             ApiEvaluationResp apiEvaluationResp = ApiEvaluationResp.builder()
                     .comment(comment)
                     .completeness(scorePayload.getCompleteness())
@@ -232,7 +240,8 @@ public class AgentAskImpl implements AgentAsk {
     }
 
     /**
-     * 批量评分改为 invokeAll：
+     * 批量评分
+     * 修改点： 批量评分改为 invokeAll：
      * 1. 提交与收集语义更稳定；
      * 2. 不再出现 CompletableFuture 嵌套异常包装；
      * 3. 单题失败时直接落到兜底，不会导致整批 join 失败。
@@ -295,6 +304,11 @@ public class AgentAskImpl implements AgentAsk {
         }
     }
 
+    /**
+     * 检查参数是否合规
+     * 不合规直接报错
+     * @param requestParam 请求参数
+     */
     private void validateQuestionWithAnswer(QuestionWithAnswer requestParam) {
         if (ObjectUtil.isNull(requestParam) || ObjectUtil.isNull(requestParam.getQuestion())) {
             throw new ClientException("问题不能为空，请检查");
@@ -310,7 +324,8 @@ public class AgentAskImpl implements AgentAsk {
 
     /**
      * 判断当前用户回答是否过短、且意图为“不会”等类似词句
-     * @param answer  用户回答
+     *
+     * @param answer 用户回答
      */
     private boolean shouldUseRuleBasedFallback(String answer) {
         String normalized = answer.replaceAll("\\s+", "");
@@ -332,6 +347,12 @@ public class AgentAskImpl implements AgentAsk {
         return jsonObject.toJSONString();
     }
 
+    /**
+     * 构建评估评价
+     * @param questionNum  问题编号
+     * @param evaluationInput  评估输入
+     * @return 大模型评语
+     */
     private String requestEvaluationComment(int questionNum, String evaluationInput) {
         String model = AIModelEnum.EVALUATION_COMMENT_AI_MODEL.getModel();
         for (int attempt = 1; attempt <= MODEL_MAX_ATTEMPTS; attempt++) {
@@ -354,6 +375,13 @@ public class AgentAskImpl implements AgentAsk {
         return FALLBACK_COMMENT_PREFIX + "评语模型输出异常，建议结合原回答人工复核。";
     }
 
+    /**
+     * 带有简单重试机制的分数计算
+     * @param questionNum 问题比那好
+     * @param evaluationInput  评估输入
+     * @param answer 问题回答
+     * @return 评估分数
+     */
     private EvaluationScorePayload requestEvaluationScore(int questionNum, String evaluationInput, String answer) {
         String model = AIModelEnum.EVALUATION_SCORE_AI_MODEL.getModel();
         for (int attempt = 1; attempt <= MODEL_MAX_ATTEMPTS; attempt++) {
@@ -386,6 +414,16 @@ public class AgentAskImpl implements AgentAsk {
         return heuristicScore;
     }
 
+    /**
+     * 模型调用通用方法
+     * @param model 模型类型
+     * @param userContent 用户消息内容
+     * @param questionNum 问题编号
+     * @param stage  当前阶段
+     * @param attempt 尝试次数
+     * @return 模型调用结果
+
+     */
     private String callModelForMessage(String model, String userContent, int questionNum, String stage, int attempt)
             throws NoApiKeyException, ApiException, InputRequiredException {
         long startTime = System.currentTimeMillis();
@@ -414,6 +452,12 @@ public class AgentAskImpl implements AgentAsk {
         return content;
     }
 
+
+    /**
+     *JSON字符串解析comment
+     * @param rawContent comment对应的json字符串
+     * @return  转换为字符串的评价
+     */
     private String parseCommentPayload(String rawContent) {
         JSONObject jsonObject = JSONObject.parseObject(extractFirstJsonObject(rawContent));
         String comment = jsonObject.getString("comment");
@@ -423,6 +467,11 @@ public class AgentAskImpl implements AgentAsk {
         return comment.trim();
     }
 
+    /**
+     * JSON字符串解析为五大分数
+     * @param rawContent  分数对应的json字符串
+     * @return  结构化分数
+     */
     private EvaluationScorePayload parseScorePayload(String rawContent) {
         JSONObject jsonObject = JSONObject.parseObject(extractFirstJsonObject(rawContent));
         return new EvaluationScorePayload(
@@ -434,6 +483,11 @@ public class AgentAskImpl implements AgentAsk {
         );
     }
 
+    /**
+     * 校验JSONObject是否存在对应字段
+     * @param jsonObject json对象
+     * @param fieldName 对应字段名
+     */
     private int readRequiredScore(JSONObject jsonObject, String fieldName) {
         Integer score = jsonObject.getInteger(fieldName);
         if (score == null) {
@@ -442,37 +496,58 @@ public class AgentAskImpl implements AgentAsk {
         return normalizeSingleScore(score);
     }
 
+    /**
+     * 从大模型原始输出中提取第一个完整的JSON对象
+     * 使用嵌套深度追踪，解析json对象
+     * @param rawContent 原始内容
+     * @return 提取后内容
+     */
     private String extractFirstJsonObject(String rawContent) {
+        //去除md标记&空白字符
         String normalized = normalizeModelContent(rawContent);
+        //定位起始符
         int start = normalized.indexOf('{');
         if (start < 0) {
             throw new IllegalArgumentException("未找到 JSON 对象起始符");
         }
-
+        //嵌套深度
         int depth = 0;
+        //标记但却按是否在字符串内部
         boolean inQuotes = false;
+        //标记前一个字符是否为转义字符
         boolean escaped = false;
+        //从json的可能开始位置遍历到字符串末尾
         for (int i = start; i < normalized.length(); i++) {
             char current = normalized.charAt(i);
+            //前一个字符是转义字符，跳过当前字符判断
+            //避免将  \“ 判断为字符串结束
             if (escaped) {
                 escaped = false;
                 continue;
             }
+            //当前为转义字符 '\'
+            //是的话设置判断标识
             if (current == '\\') {
                 escaped = true;
                 continue;
             }
+            //判断当前是否在字符串当中
+            //用于区分json字符串外部括号&字符串内部字符
             if (current == '"') {
                 inQuotes = !inQuotes;
                 continue;
             }
+            //当前在字符串内部，跳过字符判断，避免字符串内普通字符影响判断json结构
             if (inQuotes) {
                 continue;
             }
+            //当前为前括号，说明嵌套深度+1
             if (current == '{') {
                 depth++;
+                //遇到后括号，不一定是json字符串结尾，只能说明嵌套深度-1
             } else if (current == '}') {
                 depth--;
+                //嵌套深度为0，说明为json结尾
                 if (depth == 0) {
                     return normalized.substring(start, i + 1);
                 }
@@ -481,6 +556,12 @@ public class AgentAskImpl implements AgentAsk {
         throw new IllegalArgumentException("JSON 对象不完整");
     }
 
+    /**
+     * 模型输出归一化
+     * 功能：预防模型使用md输出导致输出不合规
+     * @param rawContent 输出内容
+     * @return 归一化输出
+     */
     private String normalizeModelContent(String rawContent) {
         String normalized = StrUtil.blankToDefault(rawContent, "").trim();
         normalized = normalized.replace("```json", "");
@@ -489,7 +570,12 @@ public class AgentAskImpl implements AgentAsk {
         return normalized.trim();
     }
 
+    /**
+     * 判断当前异常是否为不可重试异常
+     * @param ex 异常
+     */
     private boolean isNonRetryableModelException(Exception ex) {
+        //没用api 调用密钥/缺失输入异常，无法重试
         return ex instanceof NoApiKeyException || ex instanceof InputRequiredException;
     }
 
@@ -498,13 +584,16 @@ public class AgentAskImpl implements AgentAsk {
      * 该兜底只用于“模型不可用”场景，因此 accuracy 被严格限制在较低区间，避免误判为高分。
      */
     private EvaluationScorePayload buildHeuristicScorePayload(String answer) {
+        //字符串归一化
         String normalized = answer.replaceAll("\\s+", "");
         int length = normalized.length();
+        //小于规定长度，分数为0
         if (length < MIN_ANSWER_LENGTH_FOR_AI) {
             return new EvaluationScorePayload(0, 0, 0, 0, 0);
         }
-
+        //关键字
         int keywordHits = countTechnicalKeywordHits(normalized.toLowerCase());
+        //结构化
         boolean structured = containsAny(normalized, "首先", "其次", "最后", "因为", "所以", "方案", "实现", "步骤", "1.", "2.", "3.");
 
         int completeness = Math.min(8, scoreByLength(length, 2, 4, 5, 6, 7) + Math.min(1, keywordHits / 3));
@@ -515,6 +604,12 @@ public class AgentAskImpl implements AgentAsk {
         return new EvaluationScorePayload(completeness, levelOfDetail, accuracy, logic, expressionAbility);
     }
 
+    /**
+     * 简单计算术语命中次数
+     * 用于兜底判断
+     * @param answer 回答问题
+     * @return  术语命中次数
+     */
     private int countTechnicalKeywordHits(String answer) {
         List<String> keywords = Arrays.asList(
                 "redis", "mysql", "rocketmq", "rabbitmq", "spring", "java",
@@ -529,6 +624,13 @@ public class AgentAskImpl implements AgentAsk {
         return hits;
     }
 
+    /**
+     * 判断关键字包含
+     * 用于兜底判断
+     * @param text 文本
+     * @param fragments 关键字
+     * @return 是否包含
+     */
     private boolean containsAny(String text, String... fragments) {
         for (String fragment : fragments) {
             if (text.contains(fragment)) {
@@ -538,6 +640,9 @@ public class AgentAskImpl implements AgentAsk {
         return false;
     }
 
+    /**
+     * 根据回答长度，选择对应分数，用于简单兜底评分
+     */
     private int scoreByLength(int length, int shortScore, int mediumScore, int longScore, int longerScore, int richScore) {
         if (length < 20) {
             return shortScore;
@@ -554,12 +659,24 @@ public class AgentAskImpl implements AgentAsk {
         return richScore;
     }
 
+    /**
+     * 构建降级兜底评价
+     * 功能：识别到用户回答过短/意图为“不会”等，触发兜底评价，降低LLM压力
+     * @param requestParam 面试问题&回答输入类
+     * @return  面试评价
+     */
     private AnswerEvaluationRespDTO buildShortAnswerFallback(QuestionWithAnswer requestParam) {
         return buildFallbackEvaluation(requestParam,
                 FALLBACK_COMMENT_PREFIX + "回答内容过短或未有效作答，系统按低分处理。",
                 new EvaluationScorePayload(0, 0, 0, 0, 0));
     }
 
+    /**
+     * 模型调用失败降级回答构建
+     * @param requestParam  请求参数
+     * @param reason 原因
+     * @return 评估返回类
+     */
     private AnswerEvaluationRespDTO buildModelFailureFallback(QuestionWithAnswer requestParam, String reason) {
         if (requestParam == null) {
             throw new ClientException("评估参数不足，请检查");
@@ -568,6 +685,13 @@ public class AgentAskImpl implements AgentAsk {
         return buildFallbackEvaluation(requestParam, FALLBACK_COMMENT_PREFIX + reason, heuristicScore);
     }
 
+    /**
+     * 构建降级评估返回对象
+     * @param requestParam  问题&面试对象回答
+     * @param comment 大模型评价
+     * @param scorePayload 所有分数
+     * @return 评估返回类对象
+     */
     private AnswerEvaluationRespDTO buildFallbackEvaluation(QuestionWithAnswer requestParam, String comment,
                                                             EvaluationScorePayload scorePayload) {
         ApiEvaluationResp apiEvaluationResp = ApiEvaluationResp.builder()
@@ -582,6 +706,11 @@ public class AgentAskImpl implements AgentAsk {
         return new AnswerEvaluationRespDTO(requestParam, apiEvaluationResp);
     }
 
+    /**
+     * 批量评估终端，构建兜底保守策略评分
+     * @param requestParams 问题&回答
+     * @return 兜底评估
+     */
     private List<AnswerEvaluationRespDTO> buildInterruptedBatchFallback(List<QuestionWithAnswer> requestParams) {
         return requestParams.stream()
                 .map(each -> buildModelFailureFallback(each, "批量评估被中断，已按保守策略完成评分。"))
@@ -589,6 +718,9 @@ public class AgentAskImpl implements AgentAsk {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 判断是否是兜底评估
+     */
     private boolean isFallbackEvaluation(AnswerEvaluationRespDTO dto) {
         return dto != null
                 && dto.getApiResp() != null
@@ -603,6 +735,9 @@ public class AgentAskImpl implements AgentAsk {
         return normalized.substring(0, 300) + "...";
     }
 
+    /**
+     * 通过面试人简历构建对应描述文本
+     */
     private String buildFormDescription(IntervieweeForm form) {
         StringBuilder builder = new StringBuilder();
         builder.append("候选人姓名：").append(form.getCandidateName())
@@ -630,12 +765,18 @@ public class AgentAskImpl implements AgentAsk {
         return builder.toString();
     }
 
+    /**
+     * 工作经历描述构建
+     */
     private String buildWorkDescription(List<WorkExperience> workExperiences) {
         return workExperiences.stream()
                 .map(each -> each.getCompanyName() + " " + each.getPosition() + " " + each.getWorkContent())
                 .collect(Collectors.joining("；"));
     }
 
+    /**
+     * 项目经历构建
+     */
     private String buildProjectDescription(ProjectExperience projectExperience) {
         return projectExperience.getProjectName()
                 + "（角色：" + projectExperience.getProjectRole()
@@ -644,6 +785,9 @@ public class AgentAskImpl implements AgentAsk {
                 + "，成果：" + projectExperience.getAchievement() + "）";
     }
 
+    /**
+     * 整体分数评估（包含总分和各维度分数）
+     */
     private InterviewDimensionScoreDTO calculateDimensionScore(List<AnswerEvaluationRespDTO> list) {
         double totalAccuracyScore = 0;
         double totalCompletenessScore = 0;
@@ -695,10 +839,7 @@ public class AgentAskImpl implements AgentAsk {
                 .build();
     }
 
-    @Override
-    public ReportGenerationRespDTO generateInterviewReportAndRecordName(ReportGenerationReqDTO requestParam) {
-        return generateInterviewReportWithFutureTasks(requestParam);
-    }
+
 
     /**
      * 报告生成侧也改为 Future 协调：
@@ -710,25 +851,31 @@ public class AgentAskImpl implements AgentAsk {
         if (ObjectUtil.isEmpty(requestParam)) {
             throw new ClientException("参数不能为空");
         }
-        if (CollectionUtil.isEmpty(requestParam.getAnswerEvaluationRespS())) {
+        List<AnswerEvaluationRespDTO> answerEvaluationRespList = requestParam.getAnswerEvaluationRespList();
+        if (CollectionUtil.isEmpty(answerEvaluationRespList)) {
             throw new ClientException("回答评估结果不能为空");
         }
+        sanitizeReportEvaluations(answerEvaluationRespList);
 
         long startTime = System.currentTimeMillis();
         Long userId = getCurrentUserId();
+        //查询简历
         IntervieweeForm form = getIntervieweeFormById(requestParam.getFormId());
-        InterviewDimensionScoreDTO dimensionScoreDTO = calculateDimensionScore(requestParam.getAnswerEvaluationRespS());
-        JSONObject reportInput = buildReportInput(requestParam, form, dimensionScoreDTO);
-
+        //计算维度分数
+        InterviewDimensionScoreDTO dimensionScoreDTO = calculateDimensionScore(answerEvaluationRespList);
+        //报告生成输入构建
+        JSONObject reportInput = buildReportInput(answerEvaluationRespList, form, dimensionScoreDTO);
+        //构建异步执行任务
         Future<AgentInterviewReportDTO> reportFuture = aiTaskExecutor.submit(
                 () -> generateInterviewReportSafely(reportInput, dimensionScoreDTO, form));
         Future<String> recordNameFuture = aiTaskExecutor.submit(
                 () -> generateRecordNameSafely(form));
-
+        //两个异步任务完成继续向下执行
         AgentInterviewReportDTO reportDTO = waitForReportFuture(reportFuture, form, dimensionScoreDTO);
         String recordName = waitForRecordNameFuture(recordNameFuture, form);
-
-        String interviewProcessRecord = JSON.toJSONString(requestParam.getAnswerEvaluationRespS());
+        //面试记录提取并json化
+        String interviewProcessRecord = JSON.toJSONString(answerEvaluationRespList);
+        //关键字提取，json化
         String interviewKeywords = JSON.toJSONString(form.getProfessionalSkills());
         InterviewRecordDO recordDO = InterviewRecordDO.builder()
                 .recordName(recordName)
@@ -762,11 +909,11 @@ public class AgentAskImpl implements AgentAsk {
                 .build();
     }
 
-    private JSONObject buildReportInput(ReportGenerationReqDTO requestParam, IntervieweeForm form,
+    private JSONObject buildReportInput(List<AnswerEvaluationRespDTO> answerEvaluationRespList, IntervieweeForm form,
                                         InterviewDimensionScoreDTO dimensionScoreDTO) {
         JSONObject jsonObject = new JSONObject();
         jsonObject.put("form", form);
-        jsonObject.put("evaluations", requestParam.getAnswerEvaluationRespS());
+        jsonObject.put("evaluations", answerEvaluationRespList);
         jsonObject.put("interviewPoint", dimensionScoreDTO.getInterviewPoint());
         jsonObject.put("accuracyScore", dimensionScoreDTO.getAccuracyScore());
         jsonObject.put("completenessScore", dimensionScoreDTO.getCompletenessScore());
@@ -776,11 +923,36 @@ public class AgentAskImpl implements AgentAsk {
         return jsonObject;
     }
 
+    private void sanitizeReportEvaluations(List<AnswerEvaluationRespDTO> answerEvaluationRespList) {
+        for (AnswerEvaluationRespDTO dto : answerEvaluationRespList) {
+            if (dto == null || dto.getQuestion() == null) {
+                throw new ClientException("回答评估结果缺少题目信息");
+            }
+            ApiEvaluationResp apiResp = dto.getApiResp();
+            if (apiResp == null) {
+                apiResp = ApiEvaluationResp.builder().build();
+                dto.setApiResp(apiResp);
+            }
+            normalizeEvaluationResp(apiResp);
+            if (StrUtil.isBlank(apiResp.getComment())) {
+                int questionNum = dto.getQuestion().getNum();
+                apiResp.setComment(FALLBACK_COMMENT_PREFIX + "评语缺失，报告生成阶段已自动补齐，请结合原回答人工复核。");
+                log.warn("报告生成请求存在缺失评语，已使用兜底评语补齐 questionNum={}", questionNum);
+            }
+        }
+    }
+
+    /**
+     * 等待报告生成完成
+     * 执行失败带有兜底策略
+     */
     private AgentInterviewReportDTO waitForReportFuture(Future<AgentInterviewReportDTO> future, IntervieweeForm form,
                                                         InterviewDimensionScoreDTO dimensionScoreDTO) {
         try {
             return future.get();
         } catch (InterruptedException ex) {
+            //方法抛出 InterruptedException，中断标志被JVM自动清除
+            //恢复中断标志
             Thread.currentThread().interrupt();
             log.error("等待面试报告结果被中断 formJobIntention={}", form.getJobIntention(), ex);
             return buildFallbackReport(form, dimensionScoreDTO, "报告任务被中断，系统已生成兜底报告。");
@@ -803,6 +975,9 @@ public class AgentAskImpl implements AgentAsk {
         }
     }
 
+    /**
+     * 带有兜底策略&重试的报告构建
+     */
     private AgentInterviewReportDTO generateInterviewReportSafely(JSONObject jsonObject,
                                                                   InterviewDimensionScoreDTO dimensionScoreDTO,
                                                                   IntervieweeForm form) {
@@ -831,6 +1006,9 @@ public class AgentAskImpl implements AgentAsk {
         return buildFallbackReport(form, dimensionScoreDTO, "模型报告生成异常，系统已生成兜底报告。");
     }
 
+    /**
+     * 将面试报告转换为返回类
+     */
     private AgentInterviewReportDTO parseInterviewReport(String rawContent, InterviewDimensionScoreDTO dimensionScoreDTO) {
         JSONObject jsonObject = JSONObject.parseObject(extractFirstJsonObject(rawContent));
         String summaryReport = jsonObject.getString("summaryReport");
@@ -852,6 +1030,9 @@ public class AgentAskImpl implements AgentAsk {
         return reportDTO;
     }
 
+    /**
+     * 构建兜底报告
+     */
     private AgentInterviewReportDTO buildFallbackReport(IntervieweeForm form,
                                                         InterviewDimensionScoreDTO dimensionScoreDTO,
                                                         String reason) {
@@ -884,6 +1065,10 @@ public class AgentAskImpl implements AgentAsk {
         return reportDTO;
     }
 
+
+    /**
+     * 带有重试&兜底的报告名称生成
+     */
     private String generateRecordNameSafely(IntervieweeForm form) {
         String model = AIModelEnum.NAME_GENERATE_AI_MODEL.getModel();
         for (int attempt = 1; attempt <= MODEL_MAX_ATTEMPTS; attempt++) {
@@ -930,7 +1115,6 @@ public class AgentAskImpl implements AgentAsk {
         }
         return normalized;
     }
-
 
 
     private void normalizeEvaluationResp(ApiEvaluationResp apiEvaluationResp) {
