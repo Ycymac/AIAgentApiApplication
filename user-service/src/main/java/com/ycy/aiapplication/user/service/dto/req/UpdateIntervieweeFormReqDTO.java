@@ -26,7 +26,7 @@ public class UpdateIntervieweeFormReqDTO {
      * 简历主键 ID。
      */
     @Schema(description = "简历主键 ID", example = "2031456789012345678")
-    private Long id;
+    private String id;
 
     /**
      * 简历名称，用于前端展示和列表搜索。
