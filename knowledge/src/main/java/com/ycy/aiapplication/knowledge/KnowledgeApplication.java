@@ -1,9 +1,13 @@
-package com.ycy.javis.knowledge;
+package com.ycy.aiapplication.knowledge;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
-@SpringBootApplication
+@SpringBootApplication(scanBasePackages = {
+        "com.ycy.aiapplication.knowledge",
+        "com.ycy.aiapplication.user.service",
+        "com.ycy.aiapplication.framework"
+})
 public class KnowledgeApplication {
 
     public static void main(String[] args) {

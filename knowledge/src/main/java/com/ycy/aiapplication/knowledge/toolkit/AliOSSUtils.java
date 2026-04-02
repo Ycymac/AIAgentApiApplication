@@ -1,9 +1,9 @@
-package com.ycy.javis.knowledge.toolkit;
+package com.ycy.aiapplication.knowledge.toolkit;
 
 import cn.hutool.core.util.IdUtil;
 import com.aliyun.oss.ClientException;
 import com.aliyun.oss.OSS;
-import com.ycy.javis.knowledge.config.OSSConfig;
+import com.ycy.aiapplication.knowledge.config.OSSConfiguration;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -21,7 +21,7 @@ public final class AliOSSUtils {
 
     private static final long NO_LIMIT = -1L;
 
-    private final OSSConfig ossConfig;
+    private final OSSConfiguration ossConfig;
     private final OSS ossClient;
 
     public String upload(MultipartFile file, String kbId, long maxBytes) {

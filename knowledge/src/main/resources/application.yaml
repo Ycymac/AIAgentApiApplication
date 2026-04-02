@@ -1,4 +1,10 @@
-spring:
+﻿spring:
   application:
     name: knowledge
 
+aliyun:
+  oss:
+    endpoint: your-end-point
+    accessKeyId:  your-access-id
+    accessKeySecret: your-secret
+    bucketName: your-bucket-name
