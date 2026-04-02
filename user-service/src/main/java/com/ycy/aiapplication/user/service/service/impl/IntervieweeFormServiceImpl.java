@@ -76,9 +76,7 @@ public class IntervieweeFormServiceImpl implements IntervieweeFormService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateIntervieweeForm(UpdateIntervieweeFormReqDTO requestParam) {
-        if (ObjectUtil.isNull(requestParam.getId())) {
-            throw new ClientException("简历id不能为空，请检查！");
-        }
+        Long formId = parseFormId(requestParam.getId());
         validFormParam(
                 requestParam.getFormName(),
                 requestParam.getCandidateName(),
@@ -88,9 +86,9 @@ public class IntervieweeFormServiceImpl implements IntervieweeFormService {
                 requestParam.getWorkExperiences(),
                 requestParam.getProjectExperiences());
         Long userId = getCurrentUserId();
-        IntervieweeFormDO oldIntervieweeFormDO = getIntervieweeFormByIdAndUserId(requestParam.getId(), userId);
+        IntervieweeFormDO oldIntervieweeFormDO = getIntervieweeFormByIdAndUserId(formId, userId);
         IntervieweeFormDO updateIntervieweeFormDO = IntervieweeFormDO.builder()
-                .id(requestParam.getId())
+                .id(formId)
                 .formName(requestParam.getFormName())
                 .candidateName(requestParam.getCandidateName())
                 .jobIntention(requestParam.getJobIntention())
@@ -102,7 +100,7 @@ public class IntervieweeFormServiceImpl implements IntervieweeFormService {
         intervieweeFormDOMapper.updateById(updateIntervieweeFormDO);
         removeFormNameCache(oldIntervieweeFormDO.getId(), oldIntervieweeFormDO.getFormName(), userId);
         addOrRefreshFormNameCache(oldIntervieweeFormDO.getId(), requestParam.getFormName(), userId, oldIntervieweeFormDO.getCreateTime());
-        log.info("修改简历成功，userId:{}, formId:{}", userId, requestParam.getId());
+        log.info("修改简历成功，userId:{}, formId:{}", userId, formId);
     }
 
     @Override
@@ -117,12 +115,10 @@ public class IntervieweeFormServiceImpl implements IntervieweeFormService {
     }
 
     @Override
-    public IntervieweeFormRespDTO searchIntervieweeFormById(Long id) {
-        if (ObjectUtil.isNull(id)) {
-            throw new ClientException("简历id不能为空，请检查！");
-        }
+    public IntervieweeFormRespDTO searchIntervieweeFormById(String id) {
+        Long formId = parseFormId(id);
         Long userId = getCurrentUserId();
-        IntervieweeFormDO intervieweeFormDO = getIntervieweeFormByIdAndUserId(id, userId);
+        IntervieweeFormDO intervieweeFormDO = getIntervieweeFormByIdAndUserId(formId, userId);
         return toRespDTO(intervieweeFormDO);
     }
 

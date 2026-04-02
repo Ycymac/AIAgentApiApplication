@@ -31,7 +31,7 @@ public interface IntervieweeFormService {
     /**
      * 根据id查询简历
      */
-    IntervieweeFormRespDTO searchIntervieweeFormById(Long id);
+    IntervieweeFormRespDTO searchIntervieweeFormById(String id);
 
     /**
      * 模糊查询简历
