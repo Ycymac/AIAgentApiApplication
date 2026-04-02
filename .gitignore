@@ -15,6 +15,9 @@ tmp
 
 ### IntelliJ IDEA ###
 .idea
+/.idea/compiler.xml
+/.idea/encodings.xml
+/.idea/vcs.xml
 !/.idea/icon.svg
 *.iws
 *.iml
