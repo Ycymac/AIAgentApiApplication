@@ -9,9 +9,10 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.ycy.aiapplication.framework.exception.ClientException;
 import com.ycy.aiapplication.framework.exception.ServiceException;
-import com.ycy.aiapplication.knowledge.control.request.KnowledgeBaseCreateRequest;
-import com.ycy.aiapplication.knowledge.control.request.KnowledgeBasePageRequest;
-import com.ycy.aiapplication.knowledge.control.request.KnowledgeBaseUpdateRequest;
+
+import com.ycy.aiapplication.knowledge.control.request.base.KnowledgeBaseCreateRequest;
+import com.ycy.aiapplication.knowledge.control.request.base.KnowledgeBasePageRequest;
+import com.ycy.aiapplication.knowledge.control.request.base.KnowledgeBaseUpdateRequest;
 import com.ycy.aiapplication.knowledge.control.vo.KnowledgeBaseVO;
 import com.ycy.aiapplication.knowledge.dao.entity.KnowledgeBaseDO;
 import com.ycy.aiapplication.knowledge.dao.entity.KnowledgeDocumentDO;

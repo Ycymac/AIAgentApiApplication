@@ -10,6 +10,7 @@
         <module name="agent" />
         <module name="framework" />
         <module name="user-service" />
+        <module name="knowledge" />
       </profile>
     </annotationProcessing>
     <bytecodeTargetLevel>

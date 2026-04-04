@@ -1,4 +1,4 @@
-package com.ycy.aiapplication.knowledge.control.request;
+package com.ycy.aiapplication.knowledge.control.request.base;
 
 import lombok.Data;
 

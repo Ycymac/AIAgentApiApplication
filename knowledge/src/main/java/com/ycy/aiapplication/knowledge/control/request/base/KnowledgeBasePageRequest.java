@@ -1,4 +1,4 @@
-package com.ycy.aiapplication.knowledge.control.request;
+package com.ycy.aiapplication.knowledge.control.request.base;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.Data;

@@ -1,9 +1,10 @@
 package com.ycy.aiapplication.knowledge.service;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
-import com.ycy.aiapplication.knowledge.control.request.KnowledgeBaseCreateRequest;
-import com.ycy.aiapplication.knowledge.control.request.KnowledgeBasePageRequest;
-import com.ycy.aiapplication.knowledge.control.request.KnowledgeBaseUpdateRequest;
+
+import com.ycy.aiapplication.knowledge.control.request.base.KnowledgeBaseCreateRequest;
+import com.ycy.aiapplication.knowledge.control.request.base.KnowledgeBasePageRequest;
+import com.ycy.aiapplication.knowledge.control.request.base.KnowledgeBaseUpdateRequest;
 import com.ycy.aiapplication.knowledge.control.vo.KnowledgeBaseVO;
 
 /**
