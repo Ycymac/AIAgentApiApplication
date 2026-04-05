@@ -19,7 +19,7 @@ import com.ycy.aiapplication.knowledge.dao.entity.KnowledgeDocumentDO;
 import com.ycy.aiapplication.knowledge.dao.mapper.KnowledgeBaseMapper;
 import com.ycy.aiapplication.knowledge.dao.mapper.KnowledgeDocumentMapper;
 import com.ycy.aiapplication.knowledge.service.KnowledgeBaseService;
-import com.ycy.aiapplication.user.service.common.context.UserContext;
+import com.ycy.aiapplication.framework.context.UserContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

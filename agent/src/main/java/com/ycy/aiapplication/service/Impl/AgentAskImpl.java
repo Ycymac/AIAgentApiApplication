@@ -37,7 +37,7 @@ import com.ycy.aiapplication.dto.resp.ReportGenerationRespDTO;
 import com.ycy.aiapplication.framework.exception.ClientException;
 import com.ycy.aiapplication.framework.exception.RemoteException;
 import com.ycy.aiapplication.service.AgentAsk;
-import com.ycy.aiapplication.user.service.common.context.UserContext;
+import com.ycy.aiapplication.framework.context.UserContext;
 import com.ycy.aiapplication.user.service.common.pojo.EducationExperience;
 import com.ycy.aiapplication.user.service.common.pojo.ProjectExperience;
 import com.ycy.aiapplication.user.service.common.pojo.WorkExperience;

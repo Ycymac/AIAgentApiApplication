@@ -1,4 +1,4 @@
-package com.ycy.aiapplication.user.service.common.context;
+package com.ycy.aiapplication.framework.context;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

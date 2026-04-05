@@ -8,7 +8,7 @@ import com.ycy.aiapplication.framework.exception.ClientException;
 import com.ycy.aiapplication.framework.web.Result;
 import com.ycy.aiapplication.framework.web.Results;
 import com.ycy.aiapplication.user.service.common.constant.UserServiceRedisConstant;
-import com.ycy.aiapplication.user.service.common.context.UserContext;
+import com.ycy.aiapplication.framework.context.UserContext;
 import com.ycy.aiapplication.user.service.dao.entity.UserAccountDO;
 import com.ycy.aiapplication.user.service.dao.mapper.UserAccountDOMapper;
 import com.ycy.aiapplication.user.service.dto.resp.LoginRespDTO;

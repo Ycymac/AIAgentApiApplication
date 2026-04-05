@@ -40,7 +40,7 @@ import com.ycy.aiapplication.knowledge.dao.mapper.KnowledgeDocumentMapper;
 import com.ycy.aiapplication.knowledge.service.KnowledgeDocumentService;
 import com.ycy.aiapplication.knowledge.toolkit.AliOSSUtils;
 import com.ycy.aiapplication.parse.parser.DocumentParser;
-import com.ycy.aiapplication.user.service.common.context.UserContext;
+import com.ycy.aiapplication.framework.context.UserContext;
 import com.ycy.aiapplication.vector.VectorStoreService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

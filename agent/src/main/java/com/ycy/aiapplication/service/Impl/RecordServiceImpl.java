@@ -13,7 +13,7 @@ import com.ycy.aiapplication.dto.resp.InterviewRecordRespDTO;
 import com.ycy.aiapplication.dto.resp.SearchInterviewNameAndIdRespDTO;
 import com.ycy.aiapplication.service.RecordService;
 import com.ycy.aiapplication.framework.exception.ClientException;
-import com.ycy.aiapplication.user.service.common.context.UserContext;
+import com.ycy.aiapplication.framework.context.UserContext;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;

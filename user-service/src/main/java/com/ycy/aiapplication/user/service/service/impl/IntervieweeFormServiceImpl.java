@@ -9,7 +9,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ycy.aiapplication.framework.exception.ClientException;
 import com.ycy.aiapplication.user.service.common.constant.UserServiceRedisConstant;
-import com.ycy.aiapplication.user.service.common.context.UserContext;
+import com.ycy.aiapplication.framework.context.UserContext;
 import com.ycy.aiapplication.user.service.common.pojo.EducationExperience;
 import com.ycy.aiapplication.user.service.common.pojo.ProjectExperience;
 import com.ycy.aiapplication.user.service.common.pojo.WorkExperience;
