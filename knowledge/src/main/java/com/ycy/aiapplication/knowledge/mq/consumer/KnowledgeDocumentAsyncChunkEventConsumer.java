@@ -1,6 +1,7 @@
 package com.ycy.aiapplication.knowledge.mq.consumer;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.ycy.aiapplication.framework.idempotent.annotations.IdempotentConsume;
 import com.ycy.aiapplication.framework.mq.base.MessageWrapper;
 import com.ycy.aiapplication.knowledge.dao.entity.KnowledgeDocumentDO;
 import com.ycy.aiapplication.knowledge.dao.mapper.KnowledgeDocumentMapper;
@@ -31,8 +32,13 @@ public class KnowledgeDocumentAsyncChunkEventConsumer implements RocketMQListene
     private final KnowledgeDocumentMapper knowledgeDocumentMapper;
 
     @Override
+    @IdempotentConsume(
+            keyPrefix = "knowledge_document_execute:idempotent",
+            key = "#messageWrapper.message.docId",
+            keyTimeOut = 120
+    )
     public void onMessage(MessageWrapper<KnowledgeDocumentAsyncChunkEvent> messageWrapper) {
-        if (messageWrapper == null || messageWrapper.getMessage() == null) {
+        if (messageWrapper == null ) {
             log.error("Chunk consumer received empty message");
             return;
         }

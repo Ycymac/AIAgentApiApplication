@@ -4,6 +4,7 @@ package com.ycy.aiapplication.knowledge.control.controller;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 
+import com.ycy.aiapplication.framework.idempotent.annotations.IdempotentSubmit;
 import com.ycy.aiapplication.framework.web.Result;
 import com.ycy.aiapplication.framework.web.Results;
 import com.ycy.aiapplication.knowledge.control.request.doc.KnowledgeDocumentPageRequest;
@@ -33,6 +34,7 @@ public class KnowledgeDocumentController {
     /**
      * 上传文档：入库记录 + 文件落盘，返回文档ID
      */
+    @IdempotentSubmit(message = "尝试次数过多，请稍后再试")
     @PostMapping(value = "/knowledge-base/{kb-id}/docs/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Result<KnowledgeDocumentVO> upload(@PathVariable("kb-id") String kbId,
                                               @RequestPart(value = "file", required = false) MultipartFile file,
@@ -43,6 +45,7 @@ public class KnowledgeDocumentController {
     /**
      * 开始分块：抽取文本 -> 分块 -> 嵌入并写入向量库
      */
+    @IdempotentSubmit(message = "尝试次数过多，请稍后再试")
     @PostMapping("/knowledge-base/docs/{doc-id}/chunk")
     public Result<Void> startChunk(@PathVariable(value = "doc-id") String docId) {
         documentService.startChunk(docId);
@@ -52,6 +55,7 @@ public class KnowledgeDocumentController {
     /**
      * 删除文档：逻辑删除。可选同时删除向量库中该文档的所有 chunk
      */
+    @IdempotentSubmit(message = "尝试次数过多，请稍后再试")
     @DeleteMapping("/knowledge-base/docs/{doc-id}")
     public Result<Void> delete(@PathVariable(value = "doc-id") String docId) {
         documentService.delete(docId);
@@ -61,6 +65,7 @@ public class KnowledgeDocumentController {
     /**
      * 查询文档详情
      */
+    @IdempotentSubmit(message = "尝试次数过多，请稍后再试")
     @GetMapping("/knowledge-base/docs/{docId}")
     public Result<KnowledgeDocumentVO> get(@PathVariable String docId) {
         return Results.success(documentService.get(docId));
@@ -69,6 +74,7 @@ public class KnowledgeDocumentController {
     /**
      * 更新文档信息
      */
+    @IdempotentSubmit(message = "尝试次数过多，请稍后再试")
     @PutMapping("/knowledge-base/docs/{docId}")
     public Result<Void> update(@PathVariable String docId,
                                @RequestBody KnowledgeDocumentUpdateRequest requestParam) {
@@ -79,6 +85,7 @@ public class KnowledgeDocumentController {
     /**
      * 分页查询文档列表（支持状态/关键字过滤）
      */
+    @IdempotentSubmit(message = "尝试次数过多，请稍后再试")
     @GetMapping("/knowledge-base/{kb-id}/docs")
     public Result<IPage<KnowledgeDocumentVO>> page(@PathVariable(value = "kb-id") String kbId,
                                                    KnowledgeDocumentPageRequest requestParam) {
@@ -88,6 +95,7 @@ public class KnowledgeDocumentController {
     /**
      * 搜索文档（全局检索建议）
      */
+    @IdempotentSubmit(message = "尝试次数过多，请稍后再试")
     @GetMapping("/knowledge-base/docs/search")
     public Result<List<KnowledgeDocumentSearchVO>> search(@RequestParam(value = "keyword", required = false) String keyword,
                                                           @RequestParam(value = "limit", defaultValue = "8") int limit) {
@@ -97,6 +105,7 @@ public class KnowledgeDocumentController {
     /**
      * 启用/禁用文档
      */
+    @IdempotentSubmit(message = "尝试次数过多，请稍后再试")
     @PatchMapping("/knowledge-base/docs/{docId}/enable")
     public Result<Void> enable(@PathVariable String docId,
                                @RequestParam("value") boolean enabled) {
@@ -107,6 +116,7 @@ public class KnowledgeDocumentController {
     /**
      * 查询文档分块日志列表
      */
+    @IdempotentSubmit(message = "尝试次数过多，请稍后再试")
     @GetMapping("/knowledge-base/docs/{docId}/chunk-logs")
     public Result<IPage<KnowledgeDocumentChunkLogVO>> getChunkLogs(@PathVariable String docId,
                                                                    Page<KnowledgeDocumentChunkLogVO> page) {

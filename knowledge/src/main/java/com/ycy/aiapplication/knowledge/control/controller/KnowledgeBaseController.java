@@ -1,6 +1,7 @@
 package com.ycy.aiapplication.knowledge.control.controller;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.ycy.aiapplication.framework.idempotent.annotations.IdempotentSubmit;
 import com.ycy.aiapplication.framework.web.Result;
 import com.ycy.aiapplication.framework.web.Results;
 
@@ -36,12 +37,14 @@ public class KnowledgeBaseController {
 
     @Operation(summary = "创建知识库")
     @PostMapping("/knowledge-base")
+    @IdempotentSubmit(message = "尝试次数过多，请稍后再试")
     public Result<String> createKnowledgeBase(@RequestBody KnowledgeBaseCreateRequest requestParam) {
         return Results.success(knowledgeBaseService.create(requestParam));
     }
 
     @Operation(summary = "更新知识库")
     @PutMapping("/knowledge-base")
+    @IdempotentSubmit(message = "尝试次数过多，请稍后再试")
     public Result<Void> updateKnowledgeBase(@RequestBody KnowledgeBaseUpdateRequest requestParam) {
         knowledgeBaseService.update(requestParam);
         return Results.success();
@@ -49,6 +52,7 @@ public class KnowledgeBaseController {
 
     @Operation(summary = "重命名知识库")
     @PutMapping("/knowledge-base/rename")
+    @IdempotentSubmit(message = "尝试次数过多，请稍后再试")
     public Result<Void> renameKnowledgeBase(@RequestBody KnowledgeBaseUpdateRequest requestParam) {
         knowledgeBaseService.rename(requestParam);
         return Results.success();
@@ -56,6 +60,7 @@ public class KnowledgeBaseController {
 
     @Operation(summary = "删除知识库")
     @DeleteMapping("/knowledge-base/{kbId}")
+    @IdempotentSubmit(message = "尝试次数过多，请稍后再试")
     public Result<Void> deleteKnowledgeBase(@PathVariable("kbId") String kbId) {
         knowledgeBaseService.delete(kbId);
         return Results.success();
@@ -63,12 +68,14 @@ public class KnowledgeBaseController {
 
     @Operation(summary = "查询知识库详情")
     @GetMapping("/knowledge-base/{kbId}")
+    @IdempotentSubmit(message = "尝试次数过多，请稍后再试")
     public Result<KnowledgeBaseVO> queryKnowledgeBase(@PathVariable("kbId") String kbId) {
         return Results.success(knowledgeBaseService.queryById(kbId));
     }
 
     @Operation(summary = "分页查询知识库")
     @GetMapping("/knowledge-base")
+    @IdempotentSubmit(message = "尝试次数过多，请稍后再试")
     public Result<IPage<KnowledgeBaseVO>> pageQuery(KnowledgeBasePageRequest requestParam) {
         return Results.success(knowledgeBaseService.pageQuery(requestParam));
     }
