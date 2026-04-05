@@ -37,6 +37,8 @@ import com.ycy.aiapplication.knowledge.dao.mapper.KnowledgeBaseMapper;
 import com.ycy.aiapplication.knowledge.dao.mapper.KnowledgeChunkDOMapper;
 import com.ycy.aiapplication.knowledge.dao.mapper.KnowledgeDocumentChunkLogMapper;
 import com.ycy.aiapplication.knowledge.dao.mapper.KnowledgeDocumentMapper;
+import com.ycy.aiapplication.knowledge.mq.event.KnowledgeDocumentAsyncChunkEvent;
+import com.ycy.aiapplication.knowledge.mq.producer.KnowledgeDocumentAsyncChunkProducer;
 import com.ycy.aiapplication.knowledge.service.KnowledgeDocumentService;
 import com.ycy.aiapplication.knowledge.toolkit.AliOSSUtils;
 import com.ycy.aiapplication.parse.parser.DocumentParser;
@@ -44,6 +46,7 @@ import com.ycy.aiapplication.framework.context.UserContext;
 import com.ycy.aiapplication.vector.VectorStoreService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.rocketmq.client.producer.SendResult;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -92,6 +95,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     private final List<DocumentParser> documentParsers;
     private final ObjectProvider<EmbeddingService> embeddingServiceProvider;
     private final VectorStoreService vectorStoreService;
+    private final KnowledgeDocumentAsyncChunkProducer knowledgeDocumentAsyncChunkProducer;
 
 
     /**
@@ -179,11 +183,20 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
      * 启动文档分块处理。
      * <p>
      * 当前阶段不引入消息队列，因此这里直接同步调用 executeChunk。
+     *
      * @param docId 文档 ID
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void startChunk(String docId) {
-        executeChunk(docId);
+        KnowledgeDocumentDO documentDO = getDocument(docId);
+        markDocumentPending(documentDO);
+        log.info("提交异步执行任务 docId={}, kbId={}, currentStatus={}",
+                documentDO.getId(), documentDO.getKbId(), documentDO.getStatus());
+        SendResult sentMessage = knowledgeDocumentAsyncChunkProducer.sendMessage(KnowledgeDocumentAsyncChunkEvent.builder()
+                .docId(docId)
+                .build());
+        log.info("异步任务消息发送成功, docId={}，发送结果状态：{}，消息id：{}", docId,sentMessage.getSendStatus(),sentMessage.getMsgId());
     }
 
     /**
@@ -208,6 +221,8 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         KnowledgeBaseDO kbDO = getKnowledgeBase(documentDO.getKbId());
         KnowledgeDocumentChunkLogDO chunkLog = createRunningChunkLog(documentDO);
         String collectionName = kbDO.getCollectionName();
+        log.info("开始执行分块任务, docId={}, kbId={}, collectionName={}, processMode={}, chunkStrategy={}",
+                documentDO.getId(), documentDO.getKbId(), collectionName, documentDO.getProcessMode(), documentDO.getChunkStrategy());
 
         long totalStart = System.currentTimeMillis();
         //解析时常
@@ -221,21 +236,27 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
 
         try {
             markDocumentRunning(documentDO);
+            log.info("文档状态切换为 running, docId={}", docId);
 
             // 第一步：读取文档来源，并通过 parser 抽取纯文本。
             long extractStart = System.currentTimeMillis();
             String extractedText = extractDocumentText(documentDO);
             extractDuration = System.currentTimeMillis() - extractStart;
+            log.info("文档解析玩咸亨, docId={}, extractDuration={}ms, textLength={}",
+                    docId, extractDuration, extractedText == null ? 0 : extractedText.length());
 
             // 第二步：按文档当前保存的分块策略与分块配置执行切分。
             long chunkStart = System.currentTimeMillis();
             List<VectorChunk> chunks = doChunk(documentDO, extractedText);
             chunkDuration = System.currentTimeMillis() - chunkStart;
+            log.info("文档分块完成, docId={}, chunkCount={}, chunkDuration={}ms",
+                    docId, chunks.size(), chunkDuration);
 
             // 第三步：同步调用 embedding 服务，为每个 chunk 回填向量。
             long embedStart = System.currentTimeMillis();
             enrichEmbedding(kbDO, chunks);
             embedDuration = System.currentTimeMillis() - embedStart;
+            log.info("分块向量化完成 docId={}, embedDuration={}ms", docId, embedDuration);
 
             //第四步：执行向量持久化保存&向量数据库保存
             long persistStart = System.currentTimeMillis();
@@ -246,11 +267,15 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
             documentDO.setUpdatedBy(currentOperator());
             knowledgeDocumentMapper.updateById(documentDO);
             persistDuration = System.currentTimeMillis() - persistStart;
+            log.info("分块持久化完成, docId={}, persistDuration={}ms, finalStatus={}",
+                    docId, persistDuration, documentDO.getStatus());
 
             fillSuccessLog(chunkLog, extractDuration, chunkDuration, embedDuration, persistDuration, chunks.size(), totalStart);
             knowledgeDocumentChunkLogMapper.updateById(chunkLog);
+            log.info("分块整体流程执行成功, docId={}, totalDuration={}ms, chunkLogId={}",
+                    docId, System.currentTimeMillis() - totalStart, chunkLog.getId());
         } catch (Exception ex) {
-            log.error("Execute knowledge document chunk failed, docId={}", docId, ex);
+            log.error("执行知识库文档分块失败, docId={}", docId, ex);
             markDocumentFailed(documentDO);
             fillFailedLog(chunkLog, extractDuration, chunkDuration, embedDuration, persistDuration, totalStart, ex);
             knowledgeDocumentChunkLogMapper.updateById(chunkLog);
@@ -609,7 +634,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     }
 
     /**
-     *构建持久层分块对象
+     * 构建持久层分块对象
      */
     private KnowledgeChunkDO buildChunkDO(KnowledgeBaseDO kbDO, KnowledgeDocumentDO documentDO, VectorChunk chunk, String operator) {
         String content = StrUtil.nullToEmpty(chunk.getContent());
@@ -768,6 +793,17 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
      */
     private void markDocumentRunning(KnowledgeDocumentDO documentDO) {
         documentDO.setStatus(DocumentStatus.RUNNING.getCode());
+        documentDO.setUpdatedBy(currentOperator());
+        knowledgeDocumentMapper.updateById(documentDO);
+    }
+
+    /**
+     * 将文档状态标记为待处理。
+     *
+     * @param documentDO 文档实体
+     */
+    private void markDocumentPending(KnowledgeDocumentDO documentDO) {
+        documentDO.setStatus(DocumentStatus.PENDING.getCode());
         documentDO.setUpdatedBy(currentOperator());
         knowledgeDocumentMapper.updateById(documentDO);
     }
@@ -1080,5 +1116,12 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         }
         Long userId = UserContext.getId();
         return userId == null ? "system" : String.valueOf(userId);
+    }
+
+    private boolean docExists(String docId){
+        return knowledgeDocumentMapper.exists(new LambdaQueryWrapper<>(KnowledgeDocumentDO.class)
+                .eq(KnowledgeDocumentDO::getId, docId)
+                .eq(KnowledgeDocumentDO::getDeleted, false)
+        );
     }
 }
