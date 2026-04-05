@@ -32,7 +32,7 @@ import java.util.Date;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-@TableName("t_knowledge_document_chunk_log")
+@TableName("knowledge_document_chunk_log")
 public class KnowledgeDocumentChunkLogDO {
 
     @TableId(type = IdType.ASSIGN_ID)
