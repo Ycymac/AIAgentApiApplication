@@ -5,6 +5,7 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.net.url.UrlBuilder;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.crypto.digest.DigestUtil;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.TypeReference;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -29,9 +30,11 @@ import com.ycy.aiapplication.knowledge.control.vo.KnowledgeDocumentChunkLogVO;
 import com.ycy.aiapplication.knowledge.control.vo.KnowledgeDocumentSearchVO;
 import com.ycy.aiapplication.knowledge.control.vo.KnowledgeDocumentVO;
 import com.ycy.aiapplication.knowledge.dao.entity.KnowledgeBaseDO;
+import com.ycy.aiapplication.knowledge.dao.entity.KnowledgeChunkDO;
 import com.ycy.aiapplication.knowledge.dao.entity.KnowledgeDocumentChunkLogDO;
 import com.ycy.aiapplication.knowledge.dao.entity.KnowledgeDocumentDO;
 import com.ycy.aiapplication.knowledge.dao.mapper.KnowledgeBaseMapper;
+import com.ycy.aiapplication.knowledge.dao.mapper.KnowledgeChunkDOMapper;
 import com.ycy.aiapplication.knowledge.dao.mapper.KnowledgeDocumentChunkLogMapper;
 import com.ycy.aiapplication.knowledge.dao.mapper.KnowledgeDocumentMapper;
 import com.ycy.aiapplication.knowledge.service.KnowledgeDocumentService;
@@ -61,15 +64,12 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-/**
- * 知识库文档实现核心类
- */
 
 /**
  * 知识库文档服务实现类。
  * <p>
  * 当前版本负责文档上传、文档管理、同步分块、同步向量化以及处理日志记录。
- * 这里不接入 pipeline，也不通过 MQ 做异步解耦。
+ * 当前不接入 pipeline，也不通过 MQ 做异步解耦。
  */
 @Slf4j
 @Service
@@ -86,6 +86,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     private final KnowledgeDocumentMapper knowledgeDocumentMapper;
     private final KnowledgeDocumentChunkLogMapper knowledgeDocumentChunkLogMapper;
     private final KnowledgeBaseMapper knowledgeBaseMapper;
+    private final KnowledgeChunkDOMapper knowledgeChunkDOMapper;
     private final AliOSSUtils aliOSSUtils;
     private final ChunkingStrategyFactory chunkingStrategyFactory;
     private final List<DocumentParser> documentParsers;
@@ -115,9 +116,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
             throw new ClientException("Upload request must not be null");
         }
 
-        /**
-         *标准化参数
-         */
+        //标准化参数
         SourceType sourceType = normalizeSourceType(requestParam.getSourceType(), file);
         ProcessMode processMode = normalizeProcessMode(requestParam.getProcessMode());
         ChunkingMode chunkingMode = normalizeChunkingMode(requestParam.getChunkStrategy());
@@ -152,7 +151,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
      * 删除文档。
      * <p>
      * 幂等设计，保障不会多次删除
-     * 当前采用逻辑删除，仅更新 deleted 标记，不物理删除文件和向量数据。
+     * 当前采用逻辑删除，同时删除持久化层和向量数据库当中数据
      *
      * @param docId 文档 ID
      */
@@ -164,12 +163,15 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
             return;
         }
         KnowledgeBaseDO kbDO = getKnowledgeBase(documentDO.getKbId());
+        //删除向量数据库数据
         deleteDocumentVectorsQuietly(kbDO.getCollectionName(), documentDO.getId());
         documentDO.setDeleted(1);
         documentDO.setChunkCount(0);
         documentDO.setStatus(DocumentStatus.PENDING.getCode());
         documentDO.setUpdatedBy(currentOperator());
         knowledgeDocumentMapper.updateById(documentDO);
+        //删除数据库持久化
+        deleteDocumentChunksQuietly(docId);
     }
 
 
@@ -235,10 +237,10 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
             enrichEmbedding(kbDO, chunks);
             embedDuration = System.currentTimeMillis() - embedStart;
 
-            // 第四步：当前版本只更新文档聚合状态和处理日志。
-            // 这里不落 chunk 明细，也不写入向量库，这是当前简化实现的关键点。
+            //第四步：执行向量持久化保存&向量数据库保存
             long persistStart = System.currentTimeMillis();
             replaceDocumentVectors(collectionName, documentDO.getId(), chunks);
+            replaceDocumentChunks(kbDO, documentDO, chunks);
             documentDO.setChunkCount(chunks.size());
             documentDO.setStatus(DocumentStatus.SUCCESS.getCode());
             documentDO.setUpdatedBy(currentOperator());
@@ -328,9 +330,11 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         }
 
         // 分块相关配置变化后，历史 chunkCount 已不再可信，需要重新进入待处理状态。
+        //删除向量数据库&持久化当中的分块数据
         if (chunkRelatedChanged) {
             KnowledgeBaseDO kbDO = getKnowledgeBase(documentDO.getKbId());
             deleteDocumentVectorsQuietly(kbDO.getCollectionName(), documentDO.getId());
+            deleteDocumentChunksQuietly(documentDO.getId());
             documentDO.setChunkCount(0);
             documentDO.setStatus(DocumentStatus.PENDING.getCode());
         }
@@ -538,7 +542,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
 
         List<VectorChunk> validChunks = chunks.stream()
                 .filter(chunk -> StringUtils.hasText(chunk.getContent()))
-                .collect(Collectors.toList());
+                .toList();
         if (CollectionUtils.isEmpty(validChunks)) {
             return;
         }
@@ -558,14 +562,6 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         }
     }
 
-    /**
-     * 将 List<Float> 转换为 float[]。
-     * <p>
-     * 使用原始数组是为了和 VectorChunk 的定义保持一致，并减少装箱开销。
-     *
-     * @param embedding 向量列表
-     * @return 原始 float 数组
-     */
     /**
      * 使用“先删后建”的方式重建文档向量，避免多次执行分块时出现重复向量。
      */
@@ -587,6 +583,61 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         vectorStoreService.deleteDocumentVectors(collectionName, docId);
     }
 
+    /**
+     * 删除旧的文档分块，插入新的文档分块，确保无残留
+     */
+    private void replaceDocumentChunks(KnowledgeBaseDO kbDO, KnowledgeDocumentDO documentDO, List<VectorChunk> chunks) {
+        deleteDocumentChunksQuietly(documentDO.getId());
+        if (CollUtil.isEmpty(chunks)) {
+            return;
+        }
+        String operator = currentOperator();
+        for (VectorChunk chunk : chunks) {
+            knowledgeChunkDOMapper.insert(buildChunkDO(kbDO, documentDO, chunk, operator));
+        }
+    }
+
+    /**
+     * 删除数据库当中当前文件的所有分块
+     */
+    private void deleteDocumentChunksQuietly(String docId) {
+        if (!StringUtils.hasText(docId)) {
+            return;
+        }
+        knowledgeChunkDOMapper.delete(Wrappers.lambdaQuery(KnowledgeChunkDO.class)
+                .eq(KnowledgeChunkDO::getDocId, docId));
+    }
+
+    /**
+     *构建持久层分块对象
+     */
+    private KnowledgeChunkDO buildChunkDO(KnowledgeBaseDO kbDO, KnowledgeDocumentDO documentDO, VectorChunk chunk, String operator) {
+        String content = StrUtil.nullToEmpty(chunk.getContent());
+        return KnowledgeChunkDO.builder()
+                .kbId(kbDO.getId())
+                .docId(documentDO.getId())
+                .chunkIndex(chunk.getIndex())
+                .content(content)
+                //使用sha256哈希算法计算唯一的哈希指纹
+                .contentHash(DigestUtil.sha256Hex(content))
+                .charCount(content.length())
+                .tokenCount(null)
+                .enabled(1)
+                .createdBy(operator)
+                .updatedBy(operator)
+                .deleted(0)
+                .build();
+    }
+
+
+    /**
+     * 将 List<Float> 转换为 float[]。
+     * <p>
+     * 使用原始数组是为了和 VectorChunk 的定义保持一致，并减少装箱开销。
+     *
+     * @param embedding 向量列表
+     * @return 原始 float 数组
+     */
     private float[] toPrimitiveArray(List<Float> embedding) {
         if (CollectionUtils.isEmpty(embedding)) {
             return new float[0];
@@ -993,11 +1044,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         return documentDO;
     }
 
-    /**
-     * 验证知识库是否存在
-     * @param kbId 知识库id
-     * @return 知识库持久化类
-     */
+
     /**
      * 查询知识库实体。
      * <p>
