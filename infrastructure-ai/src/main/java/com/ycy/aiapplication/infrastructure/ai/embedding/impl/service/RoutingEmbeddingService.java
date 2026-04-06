@@ -2,6 +2,8 @@ package com.ycy.aiapplication.infrastructure.ai.embedding.impl.service;
 
 import com.ycy.aiapplication.infrastructure.ai.config.AIModelProperties;
 import com.ycy.aiapplication.infrastructure.ai.embedding.EmbeddingClient;
+import com.ycy.aiapplication.infrastructure.ai.embedding.EmbeddingModelRegistry;
+import com.ycy.aiapplication.infrastructure.ai.embedding.EmbeddingRoute;
 import com.ycy.aiapplication.infrastructure.ai.embedding.EmbeddingService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -14,9 +16,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 向量化路由服务。
- * <p>
- * 负责基于统一配置类 AIModelProperties 在百炼和 SiliconFlow 之间进行选择与降级。
+ * Embedding 路由服务。
+ * 负责根据 embedding 配置计算 provider/model 路由，并在失败时执行降级。
  */
 @Service
 @RequiredArgsConstructor
@@ -24,10 +25,12 @@ public class RoutingEmbeddingService implements EmbeddingService {
 
     private final List<EmbeddingClient> embeddingClients;
     private final AIModelProperties properties;
+    private final EmbeddingModelRegistry modelRegistry;
 
     @Override
     public int dimension() {
-        return properties.getEmbedding().getDimension() == null ? 0 : properties.getEmbedding().getDimension();
+        Integer dimension = properties.getEmbedding().getDimension();
+        return dimension == null ? 0 : dimension;
     }
 
     @Override
@@ -53,19 +56,22 @@ public class RoutingEmbeddingService implements EmbeddingService {
         }
 
         Map<String, EmbeddingClient> clientMap = buildClientMap();
-        List<String> routeOrder = resolveRouteOrder(modelId);
+        EmbeddingRoute route = resolveRoute(modelId);
         RuntimeException lastException = null;
+        int expectedDimension = dimension();
+        int batchSize = resolveBatchSize();
 
-        for (String provider : routeOrder) {
-            EmbeddingClient client = clientMap.get(normalizeProvider(provider));
-            if (client == null) {
+        for (EmbeddingRoute.EmbeddingTarget target : route.attempts()) {
+            EmbeddingClient client = clientMap.get(modelRegistry.normalize(target.provider()));
+            if (client == null || !client.supports(target.provider(), target.modelId())) {
                 continue;
             }
             try {
-                return client.embedBatch(texts);
+                return client.embedBatch(texts, target.modelId(), expectedDimension, batchSize);
             } catch (RuntimeException ex) {
                 lastException = ex;
-                if (!Boolean.TRUE.equals(properties.getEmbedding().getFallbackEnabled())) {
+                if (!Boolean.TRUE.equals(properties.getEmbedding().getFallbackEnabled())
+                        || target.equals(route.attempts().get(route.attempts().size() - 1))) {
                     throw ex;
                 }
             }
@@ -77,79 +83,64 @@ public class RoutingEmbeddingService implements EmbeddingService {
         throw new IllegalStateException("No available embedding client found");
     }
 
-    /**
-     * 构建 provider -> client 的映射。
-     *
-     * @return 客户端映射
-     */
     private Map<String, EmbeddingClient> buildClientMap() {
         Map<String, EmbeddingClient> clientMap = new LinkedHashMap<>();
         for (EmbeddingClient client : embeddingClients) {
-            clientMap.put(normalizeProvider(client.provider()), client);
+            clientMap.put(modelRegistry.normalize(client.provider()), client);
         }
         return clientMap;
     }
 
-    /**
-     * 计算本次调用的路由顺序。
-     * <p>
-     * 规则：
-     * 1. 如果传入了 modelId，则优先根据 modelId 反推 provider
-     * 2. 否则使用 embedding.primary
-     * 3. 如果允许降级，再拼接 fallbackOrder 中的其它 provider
-     *
-     * @param modelId 指定模型 ID
-     * @return provider 顺序列表
-     */
-    private List<String> resolveRouteOrder(String modelId) {
-        List<String> routeOrder = new ArrayList<>();
+    private EmbeddingRoute resolveRoute(String modelId) {
+        String primaryProvider = resolvePrimaryProvider(modelId);
+        String primaryModel = resolvePrimaryModel(primaryProvider, modelId);
 
-        String preferredProvider = resolveProviderByModelId(modelId);
-        if (!StringUtils.hasText(preferredProvider)) {
-            preferredProvider = properties.getEmbedding().getPrimary();
-        }
-        if (StringUtils.hasText(preferredProvider)) {
-            routeOrder.add(normalizeProvider(preferredProvider));
-        }
-
+        List<EmbeddingRoute.EmbeddingTarget> fallbacks = new ArrayList<>();
         if (Boolean.TRUE.equals(properties.getEmbedding().getFallbackEnabled())
                 && !CollectionUtils.isEmpty(properties.getEmbedding().getFallbackOrder())) {
-            for (String provider : properties.getEmbedding().getFallbackOrder()) {
-                String normalized = normalizeProvider(provider);
-                if (!routeOrder.contains(normalized)) {
-                    routeOrder.add(normalized);
+            for (String fallbackProvider : properties.getEmbedding().getFallbackOrder()) {
+                String normalizedProvider = modelRegistry.normalize(fallbackProvider);
+                if (!StringUtils.hasText(normalizedProvider) || normalizedProvider.equals(primaryProvider)) {
+                    continue;
+                }
+                String fallbackModel = modelRegistry.getModel(normalizedProvider);
+                if (StringUtils.hasText(fallbackModel)) {
+                    fallbacks.add(new EmbeddingRoute.EmbeddingTarget(normalizedProvider, fallbackModel));
                 }
             }
         }
-        return routeOrder;
+
+        return new EmbeddingRoute(
+                new EmbeddingRoute.EmbeddingTarget(primaryProvider, primaryModel),
+                fallbacks
+        );
     }
 
-    /**
-     * 根据模型 ID 反推 provider。
-     *
-     * @param modelId 模型 ID
-     * @return provider 标识
-     */
-    private String resolveProviderByModelId(String modelId) {
-        if (!StringUtils.hasText(modelId)) {
-            return null;
+    private String resolvePrimaryProvider(String modelId) {
+        String provider = modelRegistry.resolveProvider(modelId);
+        if (StringUtils.hasText(provider)) {
+            return provider;
         }
-        if (properties.getBaiLian() != null && modelId.equals(properties.getBaiLian().getEmbeddingModel())) {
-            return "bailian";
+        String defaultProvider = modelRegistry.normalize(properties.getEmbedding().getDefaultProvider());
+        if (StringUtils.hasText(defaultProvider)) {
+            return defaultProvider;
         }
-        if (properties.getSiliconFlow() != null && modelId.equals(properties.getSiliconFlow().getEmbeddingModel())) {
-            return "siliconflow";
-        }
-        return null;
+        throw new IllegalStateException("Embedding defaultProvider is not configured");
     }
 
-    /**
-     * 统一 provider 字符串格式。
-     *
-     * @param provider 原始 provider
-     * @return 标准化 provider
-     */
-    private String normalizeProvider(String provider) {
-        return provider == null ? null : provider.trim().toLowerCase();
+    private String resolvePrimaryModel(String provider, String modelId) {
+        if (StringUtils.hasText(modelId)) {
+            return modelId;
+        }
+        String resolvedModel = modelRegistry.getModel(provider);
+        if (StringUtils.hasText(resolvedModel)) {
+            return resolvedModel;
+        }
+        throw new IllegalStateException("Embedding model is not configured for provider: " + provider);
+    }
+
+    private int resolveBatchSize() {
+        Integer batchSize = properties.getEmbedding().getBatchSize();
+        return batchSize == null || batchSize <= 0 ? 16 : batchSize;
     }
 }

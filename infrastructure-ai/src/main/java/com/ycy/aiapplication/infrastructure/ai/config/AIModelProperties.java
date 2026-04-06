@@ -4,70 +4,108 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
- * 通用 AI 模型调用配置。
- * <p>
- * 当前仅保留百炼 SDK 与 SiliconFlow HTTP 两条调用通道，
- * 用于聊天与向量化链路，不再维护 provider/candidate 这类平台化配置结构。
+ * AI 平台与能力配置。
+ * 平台连接信息与 embedding 路由策略分离，避免 provider 配置和能力选择耦合。
  */
 @Data
 @Configuration
-@ConfigurationProperties(prefix = "ai.properties")
+@ConfigurationProperties(prefix = "ai")
 public class AIModelProperties {
 
     /**
-     * 聊天链路配置。
+     * 各平台连接配置。
      */
-    private Chat chat = new Chat();
+    private Providers providers = new Providers();
 
     /**
-     * 向量化链路配置。
+     * Embedding 能力层配置。
      */
     private Embedding embedding = new Embedding();
 
     /**
-     * 百炼 SDK 通道配置。
+     * Rerank能力配置
      */
-    private BaiLian baiLian = new BaiLian();
+    private Rerank rerank = new Rerank();
 
     /**
-     * SiliconFlow HTTP 通道配置。
-     */
-    private SiliconFlow siliconFlow = new SiliconFlow();
-
-    /**
-     * HTTP 公共调用配置。
+     * HTTP 公共配置。
      */
     private Http http = new Http();
 
     @Data
-    public static class Chat {
+    public static class Providers {
+
+        private BaiLianProvider bailian = new BaiLianProvider();
+
+        private SiliconFlowProvider siliconflow = new SiliconFlowProvider();
+    }
+
+    @Data
+    public static class Provider {
 
         /**
-         * 主通道，可选 baiLian / siliconFlow。
+         * 是否启用当前平台。
          */
-        private String primary = "baiLian";
+        private Boolean enabled = true;
 
         /**
-         * 是否开启失败降级。
+         * 平台 API Key。
          */
-        private Boolean fallbackEnabled = true;
+        private String apiKey;
+    }
+
+    @Data
+    public static class BaiLianProvider extends Provider {
 
         /**
-         * 聊天链路降级顺序。
+         * 百炼 HTTP 根地址。
          */
-        private List<String> fallbackOrder = List.of("baiLian", "siliconFlow");
+        private String baseUrl = "https://dashscope.aliyuncs.com/api/v1";
+
+        /**
+         * 百炼 embedding 接口路径。
+         */
+        private String embeddingPath = "/services/embeddings/text-embedding/text-embedding";
+
+        /**
+         * 百炼rerank接口路径
+         */
+        private String rerankPath = "/services/rerank/text-rerank/text-rerank";
+
+
+    }
+
+    @Data
+    public static class SiliconFlowProvider extends Provider {
+
+        /**
+         * SiliconFlow HTTP 根地址。
+         */
+        private String baseUrl = "https://api.siliconflow.cn";
+
+        /**
+         * SiliconFlow chat 接口路径。
+         */
+        private String chatPath = "/v1/chat/completions";
+
+        /**
+         * SiliconFlow embedding 接口路径。
+         */
+        private String embeddingPath = "/v1/embeddings";
     }
 
     @Data
     public static class Embedding {
 
         /**
-         * 主通道，可选 baiLian / siliconFlow。
+         * 默认 provider。
          */
-        private String primary = "baiLian";
+        private String defaultProvider = "bailian";
 
         /**
          * 是否开启失败降级。
@@ -75,94 +113,67 @@ public class AIModelProperties {
         private Boolean fallbackEnabled = true;
 
         /**
-         * 向量维度。两条通道应保持一致。
+         * provider 降级顺序。
          */
-        private Integer dimension = 1024;
+        private List<String> fallbackOrder = List.of("siliconflow");
 
         /**
-         * 批量向量化单次请求数。
+         * 统一批量大小。
          */
         private Integer batchSize = 16;
 
         /**
-         * 向量化链路降级顺序。
+         * 统一向量维度。
          */
-        private List<String> fallbackOrder = List.of("baiLian", "siliconFlow");
+        private Integer dimension = 1024;
+
+        /**
+         * provider -> modelId 映射。
+         */
+        private Map<String, String> models = defaultModels();
+
+        private static Map<String, String> defaultModels() {
+            Map<String, String> models = new LinkedHashMap<>();
+            models.put("bailian", "text-embedding-v4");
+            models.put("siliconflow", "BAAI/bge-m3");
+            return models;
+        }
     }
 
     @Data
-    public static class Channel {
+    public static class Rerank {
 
         /**
-         * 是否启用当前通道。
+         * 默认 provider。
          */
-        private Boolean enabled = true;
+        private String defaultProvider = "bailian1";
 
         /**
-         * 访问密钥。
+         * provider 降级顺序。
          */
-        private String apiKey;
+        private List<String> fallbackOrder = List.of("bailian2");
 
         /**
-         * 聊天模型名称。
+         * provider -> modelId 映射。
          */
-        private String chatModel;
+        private Map<String, String> models = defaultModels();
 
-        /**
-         * 向量化模型名称。
-         */
-        private String embeddingModel;
-    }
+        private static Map<String, String> defaultModels() {
+            Map<String, String> models = new LinkedHashMap<>();
+            models.put("bailian1", "qwen3-vl-rerank");
+            models.put("bailian2", "qwen3-rerank");
+            return models;
+        }
 
-    @Data
-    public static class BaiLian extends Channel {
-
-        /**
-         * 百炼兼容模式或服务接入地址。
-         */
-        private String baseUrl;
-
-        /**
-         * 可选工作空间标识。
-         */
-        private String workspaceId;
-    }
-
-    @Data
-    public static class SiliconFlow extends Channel {
-
-        /**
-         * SiliconFlow 服务根地址。
-         */
-        private String baseUrl;
-
-        /**
-         * 聊天接口路径。
-         */
-        private String chatPath = "/v1/chat/completions";
-
-        /**
-         * 向量化接口路径。
-         */
-        private String embeddingPath = "/v1/embeddings";
     }
 
     @Data
     public static class Http {
 
-        /**
-         * 连接超时时间，单位毫秒。
-         */
         private Long connectTimeoutMs = 3000L;
 
-        /**
-         * 读取超时时间，单位毫秒。
-         */
         private Long readTimeoutMs = 10000L;
 
-        /**
-         * 写入超时时间，单位毫秒。
-         */
         private Long writeTimeoutMs = 10000L;
     }
 }

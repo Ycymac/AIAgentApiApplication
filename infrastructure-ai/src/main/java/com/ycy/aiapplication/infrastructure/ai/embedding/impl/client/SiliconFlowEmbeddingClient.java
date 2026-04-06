@@ -1,19 +1,22 @@
 package com.ycy.aiapplication.infrastructure.ai.embedding.impl.client;
 
 import cn.hutool.core.collection.CollUtil;
-import com.google.gson.Gson;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
+import com.ycy.aiapplication.framework.exception.ClientException;
+import com.ycy.aiapplication.framework.exception.ServiceException;
 import com.ycy.aiapplication.infrastructure.ai.config.AIModelProperties;
 import com.ycy.aiapplication.infrastructure.ai.embedding.EmbeddingClient;
+import com.ycy.aiapplication.infrastructure.ai.embedding.EmbeddingModelRegistry;
 import com.ycy.aiapplication.infrastructure.ai.enums.ModelCapability;
 import com.ycy.aiapplication.infrastructure.ai.enums.ModelProvider;
 import com.ycy.aiapplication.infrastructure.ai.http.HttpMediaTypes;
 import com.ycy.aiapplication.infrastructure.ai.http.ModelClientErrorType;
 import com.ycy.aiapplication.infrastructure.ai.http.ModelClientException;
 import com.ycy.aiapplication.infrastructure.ai.http.ModelURLResolver;
+import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.OkHttpClient;
@@ -37,9 +40,10 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class SiliconFlowEmbeddingClient implements EmbeddingClient {
 
-    private static final int DEFAULT_MAX_BATCH = 32;
+    private static final int DEFAULT_BATCH_SIZE = 16;
 
     private final AIModelProperties properties;
+    private final EmbeddingModelRegistry modelRegistry;
     private final OkHttpClient httpClient;
 
     private final Gson gson = new Gson();
@@ -50,44 +54,55 @@ public class SiliconFlowEmbeddingClient implements EmbeddingClient {
     }
 
     @Override
-    public List<Float> embed(String text) {
-        return embedBatch(List.of(text)).get(0);
+    public boolean supports(String provider, String modelId) {
+        return modelRegistry.supports(provider(), provider, modelId);
     }
 
     @Override
-    public List<List<Float>> embedBatch(List<String> texts) {
+    public int dimension(String modelId) {
+        Integer dimension = properties.getEmbedding().getDimension();
+        return dimension == null ? 0 : dimension;
+    }
+
+    @Override
+    public List<List<Float>> embedBatch(List<String> texts, String modelId, Integer dimension, Integer batchSize) {
         if (CollUtil.isEmpty(texts)) {
             return Collections.emptyList();
         }
 
-        List<List<Float>> results = new ArrayList<>(texts.size());
-        for (int i = 0; i < texts.size(); i += DEFAULT_MAX_BATCH) {
-            int end = Math.min(i + DEFAULT_MAX_BATCH, texts.size());
-            List<String> slice = texts.subList(i, end);
-            results.addAll(doEmbedOnce(slice));
+        String resolvedModel = requireModel(modelId);
+        int resolvedDimension = dimension == null || dimension <= 0 ? 0 : dimension;
+        int resolvedBatchSize = batchSize == null || batchSize <= 0 ? DEFAULT_BATCH_SIZE : batchSize;
+        List<String> normalizedTexts = normalizeTexts(texts);
+
+        List<List<Float>> results = new ArrayList<>(normalizedTexts.size());
+        for (int i = 0; i < normalizedTexts.size(); i += resolvedBatchSize) {
+            int end = Math.min(i + resolvedBatchSize, normalizedTexts.size());
+            List<String> slice = normalizedTexts.subList(i, end);
+            results.addAll(doEmbedOnce(slice, resolvedModel, resolvedDimension));
         }
 
-        if (results.size() != texts.size()) {
-            throw new ModelClientException(
-                    "Embedding result size does not match request size",
-                    ModelClientErrorType.INVALID_RESPONSE,
-                    null
-            );
-        }
+        validateBatchResult(results, normalizedTexts.size(), resolvedDimension);
         return results;
     }
 
-    /**
-     * 单次调用 SiliconFlow Embedding 接口。
-     *
-     * @param slice 单批次文本
-     * @return 向量结果
-     */
-    private List<List<Float>> doEmbedOnce(List<String> slice) {
-        AIModelProperties.SiliconFlow channel = requireChannel();
+    private List<String> normalizeTexts(List<String> texts) {
+        List<String> normalizedTexts = new ArrayList<>(texts.size());
+        for (int i = 0; i < texts.size(); i++) {
+            String normalizedText = normalizeText(texts.get(i));
+            if (!StringUtils.hasText(normalizedText)) {
+                throw new ClientException("Embedding 输入文本不能为空，index=" + i);
+            }
+            normalizedTexts.add(normalizedText);
+        }
+        return normalizedTexts;
+    }
+
+    private List<List<Float>> doEmbedOnce(List<String> slice, String modelId, int expectedDimension) {
+        AIModelProperties.SiliconFlowProvider channel = requireChannel();
 
         Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("model", requireModel());
+        requestBody.put("model", modelId);
         requestBody.put("input", slice);
         requestBody.put("encoding_format", "float");
 
@@ -132,11 +147,7 @@ public class SiliconFlowEmbeddingClient implements EmbeddingClient {
 
         JsonArray data = root.getAsJsonArray("data");
         if (data == null) {
-            throw new ModelClientException(
-                    "SiliconFlow embedding response missing data field",
-                    ModelClientErrorType.INVALID_RESPONSE,
-                    null
-            );
+            throw new ModelClientException("SiliconFlow embedding response missing data field", ModelClientErrorType.INVALID_RESPONSE, null);
         }
 
         List<List<Float>> vectors = new ArrayList<>(data.size());
@@ -144,11 +155,7 @@ public class SiliconFlowEmbeddingClient implements EmbeddingClient {
             JsonObject item = element.getAsJsonObject();
             JsonArray embedding = item.getAsJsonArray("embedding");
             if (embedding == null) {
-                throw new ModelClientException(
-                        "SiliconFlow embedding response missing embedding field",
-                        ModelClientErrorType.INVALID_RESPONSE,
-                        null
-                );
+                throw new ModelClientException("SiliconFlow embedding response missing embedding field", ModelClientErrorType.INVALID_RESPONSE, null);
             }
             List<Float> vector = new ArrayList<>(embedding.size());
             for (JsonElement number : embedding) {
@@ -156,16 +163,33 @@ public class SiliconFlowEmbeddingClient implements EmbeddingClient {
             }
             vectors.add(vector);
         }
+        validateBatchResult(vectors, slice.size(), expectedDimension);
         return vectors;
     }
 
-    /**
-     * 获取并校验 SiliconFlow 通道配置。
-     *
-     * @return SiliconFlow 配置
-     */
-    private AIModelProperties.SiliconFlow requireChannel() {
-        AIModelProperties.SiliconFlow channel = properties.getSiliconFlow();
+    private void validateBatchResult(List<List<Float>> vectors, int expectedSize, int expectedDimension) {
+        if (vectors == null || vectors.size() != expectedSize) {
+            throw new ServiceException("向量化结果数量不匹配，期望=" + expectedSize + "，实际=" + (vectors == null ? 0 : vectors.size()));
+        }
+
+        int runtimeDimension = 0;
+        for (int i = 0; i < vectors.size(); i++) {
+            List<Float> vector = vectors.get(i);
+            if (CollUtil.isEmpty(vector)) {
+                throw new ServiceException("向量结果为空，index=" + i);
+            }
+            if (expectedDimension <= 0 && runtimeDimension <= 0) {
+                runtimeDimension = vector.size();
+            }
+            int targetDimension = expectedDimension > 0 ? expectedDimension : runtimeDimension;
+            if (targetDimension > 0 && vector.size() != targetDimension) {
+                throw new ServiceException("向量维度不匹配，期望=" + targetDimension + "，实际=" + vector.size() + "，index=" + i);
+            }
+        }
+    }
+
+    private AIModelProperties.SiliconFlowProvider requireChannel() {
+        AIModelProperties.SiliconFlowProvider channel = properties.getProviders().getSiliconflow();
         if (channel == null || !Boolean.TRUE.equals(channel.getEnabled())) {
             throw new IllegalStateException("SiliconFlow channel is disabled");
         }
@@ -178,41 +202,25 @@ public class SiliconFlowEmbeddingClient implements EmbeddingClient {
         return channel;
     }
 
-    /**
-     * 获取并校验 SiliconFlow embedding 模型名。
-     *
-     * @return 模型名
-     */
-    private String requireModel() {
-        String model = properties.getSiliconFlow() == null ? null : properties.getSiliconFlow().getEmbeddingModel();
-        if (!StringUtils.hasText(model)) {
-            throw new IllegalStateException("SiliconFlow embedding model is missing");
+    private String requireModel(String modelId) {
+        String resolvedModel = StringUtils.hasText(modelId) ? modelId : modelRegistry.getModel(provider());
+        if (!StringUtils.hasText(resolvedModel)) {
+            throw new ClientException("SiliconFlow embeddingModel 未配置");
         }
-        return model;
+        return resolvedModel;
     }
 
-    /**
-     * 解析响应体 JSON。
-     *
-     * @param body 响应体
-     * @return JSON 对象
-     * @throws IOException IO 异常
-     */
+    private String normalizeText(String text) {
+        return text == null ? null : text.trim();
+    }
+
     private JsonObject parseJsonBody(ResponseBody body) throws IOException {
         if (body == null) {
             throw new ModelClientException("SiliconFlow embedding response is empty", ModelClientErrorType.INVALID_RESPONSE, null);
         }
-        String content = body.string();
-        return JsonParser.parseString(content).getAsJsonObject();
+        return JsonParser.parseString(body.string()).getAsJsonObject();
     }
 
-    /**
-     * 读取响应体字符串。
-     *
-     * @param body 响应体
-     * @return 文本内容
-     * @throws IOException IO 异常
-     */
     private String readBody(ResponseBody body) throws IOException {
         if (body == null) {
             return "";
@@ -220,12 +228,6 @@ public class SiliconFlowEmbeddingClient implements EmbeddingClient {
         return new String(body.bytes(), StandardCharsets.UTF_8);
     }
 
-    /**
-     * 根据 HTTP 状态码映射错误类型。
-     *
-     * @param status HTTP 状态码
-     * @return 错误类型
-     */
     private ModelClientErrorType classifyStatus(int status) {
         if (status == 401 || status == 403) {
             return ModelClientErrorType.UNAUTHORIZED;
