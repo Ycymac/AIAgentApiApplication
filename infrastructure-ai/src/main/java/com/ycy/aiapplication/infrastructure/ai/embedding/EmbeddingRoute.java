@@ -4,6 +4,8 @@ import java.util.List;
 
 /**
  * 一次 embedding 请求的路由结果。
+ * @param primary 主目标
+ * @param fallbacks 降级列表
  */
 public record EmbeddingRoute(
         EmbeddingTarget primary,

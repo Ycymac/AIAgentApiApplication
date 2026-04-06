@@ -40,9 +40,8 @@ ai:
     models:
       bailian: text-embedding-v4
       siliconflow: BAAI/bge-m3
-
   rerank:
-    default-provider: bailian
-    models:
-      bailian1: qwen3-vl-rerank
-      bailian2: qwen3-rerank
+    provider: bailian
+    primary-model: qwen3-vl-rerank
+    backup-models:
+      - qwen3-rerank
