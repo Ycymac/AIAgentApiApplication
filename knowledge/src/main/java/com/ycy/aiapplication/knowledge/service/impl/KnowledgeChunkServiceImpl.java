@@ -277,6 +277,7 @@ public class KnowledgeChunkServiceImpl implements KnowledgeChunkService {
 
     private void syncChunkToVector(KnowledgeBaseDO kbDO, KnowledgeDocumentDO documentDO, KnowledgeChunkDO chunkDO) {
         EmbeddingService embeddingService = getEmbeddingService();
+        //强制指定模型向量化防止
         List<Float> embedding = embeddingService.embed(chunkDO.getContent(), kbDO.getEmbeddingModel());
         vectorStoreService.indexDocumentChunks(
                 kbDO.getCollectionName(),

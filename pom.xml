@@ -25,6 +25,7 @@
         <module>agent</module>
         <module>framework</module>
         <module>knowledge</module>
+        <module>rag</module>
     </modules>
     <properties>
         <milvus-sdk.version>2.6.6</milvus-sdk.version>
@@ -52,6 +53,7 @@
         <maven-compiler-plugin.version>3.6.1</maven-compiler-plugin.version>
         <transmittable-thread-local.version>2.14.5</transmittable-thread-local.version>
         <aliyun-oss.version>3.17.4</aliyun-oss.version>
+        <elasticsearch-spring-boot-starter.version>2.6.12</elasticsearch-spring-boot-starter.version>
     </properties>
     <dependencyManagement>
         <dependencies>
@@ -160,6 +162,12 @@
                 <groupId>com.aliyun.oss</groupId>
                 <artifactId>aliyun-sdk-oss</artifactId>
                 <version>${aliyun-oss.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-starter-data-elasticsearch</artifactId>
+                <version>${elasticsearch-spring-boot-starter.version}</version>
             </dependency>
 
         </dependencies>

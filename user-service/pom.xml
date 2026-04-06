@@ -31,13 +31,6 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- 基础架构组件包相关依赖 -->
-        <dependency>
-            <groupId>com.ycy.aiapplication</groupId>
-            <artifactId>framework</artifactId>
-            <version>0.0.1-SNAPSHOT</version>
-        </dependency>
-
         <dependency>
             <groupId>cn.hutool</groupId>
             <artifactId>hutool-all</artifactId>

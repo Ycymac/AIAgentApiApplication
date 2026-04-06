@@ -39,9 +39,15 @@ ai:
     dimension: 1024
     models:
       bailian: text-embedding-v4
-      siliconflow: BAAI/bge-m3
+      siliconflow: Qwen/Qwen3-Embedding-0.6B
   rerank:
     provider: bailian
     primary-model: qwen3-vl-rerank
     backup-models:
       - qwen3-rerank
+
+knowledge:
+  default:
+    collection-name: knowledge_default_store
+    dimension: 1024
+    metric-type: COSINE
