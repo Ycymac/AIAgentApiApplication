@@ -1,11 +1,13 @@
 package com.ycy.aiapplication.infrastructure.ai.token;
 
 import cn.hutool.core.util.StrUtil;
+import org.springframework.stereotype.Service;
 
 /**
  * 轻量token计算服务
  */
-public class LeightWeightTokenCounterService implements TokenCounterService {
+@Service
+public final class LeightWeightTokenCounterService implements TokenCounterService {
     @Override
     public Integer countTokens(String text) {
         //字符串为空，token量为0
