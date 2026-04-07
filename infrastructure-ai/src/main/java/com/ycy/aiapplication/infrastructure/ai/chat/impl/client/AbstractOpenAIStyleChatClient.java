@@ -78,10 +78,12 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
 
     /**
      * 启动一次流式聊天调用，并把真正的读取逻辑投递到专属流式线程池。
+     * @param callback 业务传入的真实回调
      */
     @Override
     public StreamCancellationHandle streamChat(ChatRequest request, StreamCallback callback, ModelTarget target) {
         Call call = httpClient.newCall(buildChatRequest(request, target, true));
+        //将读取任务放入专用线程池执行并立即返回一个StreamCancellationHandle
         return StreamAsyncExecutor.submit(
                 streamExecutor,
                 call,
@@ -94,6 +96,7 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
      * 消费上游 SSE 响应，并把内容片段与 thinking 片段实时转发给下游回调。
      */
     protected void doStream(Call call, StreamCallback callback, AtomicBoolean cancelled, boolean reasoningEnabled) {
+        //读取http响应数据
         try (Response response = call.execute()) {
             if (!response.isSuccessful()) {
                 String body = readBody(response.body());
@@ -109,6 +112,7 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
             }
             BufferedSource source = body.source();
             boolean completed = false;
+            //未被取消，持续读入
             while (!cancelled.get()) {
                 // 逐行读取 SSE 帧，避免把整段响应一次性读入内存。
                 String line = source.readUtf8Line();

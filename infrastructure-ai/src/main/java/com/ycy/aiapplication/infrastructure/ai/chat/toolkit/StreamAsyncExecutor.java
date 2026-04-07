@@ -28,6 +28,7 @@ public final class StreamAsyncExecutor {
 
     /**
      * 提交流式任务，并将共享取消标记传递给执行体。
+     * @param streamTask consumer函数式接口
      */
     public static StreamCancellationHandle submit(
             Executor executor,

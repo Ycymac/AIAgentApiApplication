@@ -92,6 +92,7 @@ public class RoutingLLMService implements LLMService {
 
             // 首包探测阶段先缓冲内容，只有确认当前模型可用后才对外提交。
             FirstPacketAwaiter awaiter = new FirstPacketAwaiter();
+            //执行首包探测、缓冲的代理回调
             ProbeBufferingCallback wrapper = new ProbeBufferingCallback(callback, awaiter);
             StreamCancellationHandle handle;
             try {
