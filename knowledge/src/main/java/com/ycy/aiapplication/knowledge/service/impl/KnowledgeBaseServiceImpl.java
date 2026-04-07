@@ -20,6 +20,9 @@ import com.ycy.aiapplication.knowledge.dao.mapper.KnowledgeBaseMapper;
 import com.ycy.aiapplication.knowledge.dao.mapper.KnowledgeDocumentMapper;
 import com.ycy.aiapplication.knowledge.service.KnowledgeBaseService;
 import com.ycy.aiapplication.framework.context.UserContext;
+import com.ycy.aiapplication.vector.VectorStoreAdmin;
+import com.ycy.aiapplication.vector.common.VectorSpaceId;
+import com.ycy.aiapplication.vector.common.VectorSpaceSpec;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,7 +40,7 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
 
     private final KnowledgeBaseMapper knowledgeBaseMapper;
     private final KnowledgeDocumentMapper knowledgeDocumentMapper;
-
+    private final VectorStoreAdmin vectorStoreAdmin;
     @Override
     @Transactional(rollbackFor = Exception.class)
     public String create(KnowledgeBaseCreateRequest requestParam) {
@@ -47,16 +50,22 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
 
         String name = normalizeName(requestParam.getName());
         checkNameUnique(name, null);
-
+        String collectionName=buildCollectionName();
         KnowledgeBaseDO kbDO = KnowledgeBaseDO.builder()
                 .name(name)
                 .embeddingModel(requestParam.getEmbeddingModel())
-                .collectionName(buildCollectionName())
+                .collectionName(collectionName)
                 .createdBy(currentOperator())
                 .updatedBy(currentOperator())
                 .deleted(0)
                 .build();
         knowledgeBaseMapper.insert(kbDO);
+        vectorStoreAdmin.ensureVectorSpace( VectorSpaceSpec.builder()
+                        .spaceId(VectorSpaceId.builder()
+                                .logicalName(collectionName)
+                                .build())
+                        .remark(requestParam.getName())
+                .build());
         return kbDO.getId();
     }
 
