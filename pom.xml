@@ -25,6 +25,7 @@
         <module>agent</module>
         <module>framework</module>
         <module>knowledge</module>
+        <module>infrastructure-ai</module>
         <module>rag</module>
     </modules>
     <properties>

@@ -47,7 +47,7 @@
         </dependency>
 
         <dependency>
-            <groupId>com.ycy.javis</groupId>
+            <groupId>com.ycy.aiaaplication</groupId>
             <artifactId>knowledge</artifactId>
             <version>0.0.1-SNAPSHOT</version>
         </dependency>
