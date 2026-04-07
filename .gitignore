@@ -14,10 +14,7 @@ tmp
 .sts4-cache
 
 ### IntelliJ IDEA ###
-.idea
-/.idea/compiler.xml
-/.idea/encodings.xml
-/.idea/vcs.xml
+/.idea/*
 !/.idea/icon.svg
 *.iws
 *.iml
