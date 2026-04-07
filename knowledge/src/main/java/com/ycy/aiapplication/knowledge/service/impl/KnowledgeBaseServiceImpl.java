@@ -132,6 +132,12 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
             throw new ClientException("当前知识库下还有文档，请先删除文档");
         }
 
+        if (StringUtils.hasText(kbDO.getCollectionName())) {
+            vectorStoreAdmin.deleteVectorSpace(VectorSpaceId.builder()
+                    .logicalName(kbDO.getCollectionName())
+                    .build());
+        }
+
         kbDO.setDeleted(1);
         kbDO.setUpdatedBy(currentOperator());
         knowledgeBaseMapper.updateById(kbDO);

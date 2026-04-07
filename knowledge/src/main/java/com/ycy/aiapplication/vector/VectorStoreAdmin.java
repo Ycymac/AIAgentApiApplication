@@ -37,4 +37,6 @@ public interface VectorStoreAdmin {
      * 只判断存在性（不创建）
      */
     boolean vectorSpaceExists(VectorSpaceId spaceId);
+
+    void deleteVectorSpace(VectorSpaceId spaceId);
 }

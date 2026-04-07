@@ -17,6 +17,8 @@
 
 package com.ycy.aiapplication.vector.impl;
 
+import cn.hutool.core.lang.Assert;
+import com.ycy.aiapplication.framework.exception.ClientException;
 import com.ycy.aiapplication.vector.VectorStoreAdmin;
 import com.ycy.aiapplication.vector.config.RAGDefaultProperties;
 import com.ycy.aiapplication.vector.common.VectorSpaceId;
@@ -27,7 +29,9 @@ import io.milvus.v2.common.ConsistencyLevel;
 import io.milvus.v2.common.DataType;
 import io.milvus.v2.common.IndexParam;
 import io.milvus.v2.service.collection.request.CreateCollectionReq;
+import io.milvus.v2.service.collection.request.DropCollectionReq;
 import io.milvus.v2.service.collection.request.HasCollectionReq;
+import io.milvus.v2.service.collection.request.ReleaseCollectionReq;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -130,5 +134,26 @@ public class MilvusVectorStoreAdmin implements VectorStoreAdmin {
         return milvusClient.hasCollection(
                 HasCollectionReq.builder().collectionName(logicalName).build()
         );
+    }
+
+    @Override
+    public void deleteVectorSpace(VectorSpaceId spaceId) {
+        Assert.notNull(spaceId, () -> new ClientException("VectorSpaceId不能为空"));
+        String logicalName = spaceId.getLogicalName();
+        Assert.notBlank(logicalName, () -> new ClientException("Collection name不能为空"));
+        if (!Boolean.TRUE.equals(milvusClient.hasCollection(
+                HasCollectionReq.builder().collectionName(logicalName).build()
+        ))) {
+            log.info("Milvus collection不存在，跳过删除, collection={}", logicalName);
+            return;
+        }
+
+        milvusClient.releaseCollection(ReleaseCollectionReq.builder()
+                .collectionName(logicalName)
+                .build());
+        milvusClient.dropCollection(DropCollectionReq.builder()
+                .collectionName(logicalName)
+                .build());
+        log.info("Milvus collection删除成功, collection={}", logicalName);
     }
 }
