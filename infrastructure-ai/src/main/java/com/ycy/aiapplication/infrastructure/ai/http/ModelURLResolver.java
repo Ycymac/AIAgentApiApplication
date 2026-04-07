@@ -32,9 +32,9 @@ public final class ModelURLResolver {
             throw new IllegalStateException("BaiLian baseUrl is missing");
         }
         String path = switch (capability) {
+            case CHAT -> channel.getChatPath();
             case EMBEDDING -> channel.getEmbeddingPath();
             case RERANK -> channel.getRerankPath();
-            default -> throw new IllegalStateException("Unsupported capability for BaiLian: " + capability);
         };
         if (!StringUtils.hasText(path)) {
             throw new IllegalStateException("BaiLian path is missing for capability: " + capability);

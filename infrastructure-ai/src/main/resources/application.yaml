@@ -6,11 +6,13 @@ ai:
       base-url: https://dashscope.aliyuncs.com/api/v1
       embedding-path: /services/embeddings/text-embedding/text-embedding
       rerank-path: /services/rerank/text-rerank/text-rerank
+      chat-path: /chat/completions
     siliconflow:
       enabled: true
       api-key: api-key
       base-url: https://api.siliconflow.cn
       embedding-path: /v1/embeddings
+      chat-path: /v1/chat/completions
   embedding:
     default-provider: bailian
     fallback-enabled: true
@@ -26,3 +28,23 @@ ai:
     primary-model: qwen3-vl-rerank
     backup-models:
       - qwen3-rerank
+  chat:
+    default-provider: bailian
+    default-model: qwen3.6-plus
+    bailian-fallback-enabled: true
+    silicon-flow-fallback-enabled: true
+    bailian-back-up-model: qwen-plus
+    silicon-flow-back-up-model: deepseek-ai/DeepSeek-V3.2
+    models:
+      bailian_1: qwen3.6-plus
+      bailian_2: qwen3.5-plus
+      siliconflow_1: Pro/zai-org/GLM-5
+      siliconflow_2: Pro/deepseek-ai/DeepSeek-V3.2
+  selection:
+    failure-threshold: 2
+    open-duration-ms: 30000
+  stream:
+    first-packet-timeout-seconds: 60
+    executor-core-size: 2
+    executor-max-size: 4
+    executor-queue-capacity: 128
