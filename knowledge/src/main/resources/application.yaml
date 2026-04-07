@@ -5,7 +5,7 @@
 aliyun:
   oss:
     endpoint: your-end-point
-    accessKeyId:  your-access-id
+    accessKeyId: your-access-id
     accessKeySecret: your-secret
     bucketName: your-bucket-name
 
@@ -16,35 +16,6 @@ rocketmq:
     send-message-timeout: 2000
     retry-times-when-send-failed: 1 #同步发送失败尝试次数
     retry-times-when-send-async-failed: 1 #异步发送失败尝试次数
-
-ai:
-  providers:
-    bailian:
-      enabled: true
-      api-key: api-key
-      base-url: https://dashscope.aliyuncs.com/api/v1
-      embedding-path: /services/embeddings/text-embedding/text-embedding
-      rerank-path: /services/rerank/text-rerank/text-rerank
-    siliconflow:
-      enabled: true
-      api-key: api-key
-      base-url: https://api.siliconflow.cn
-      embedding-path: /v1/embeddings
-  embedding:
-    default-provider: bailian
-    fallback-enabled: true
-    fallback-order:
-      - siliconflow
-    batch-size: 16
-    dimension: 1024
-    models:
-      bailian: text-embedding-v4
-      siliconflow: Qwen/Qwen3-Embedding-0.6B
-  rerank:
-    provider: bailian
-    primary-model: qwen3-vl-rerank
-    backup-models:
-      - qwen3-rerank
 
 knowledge:
   default:
