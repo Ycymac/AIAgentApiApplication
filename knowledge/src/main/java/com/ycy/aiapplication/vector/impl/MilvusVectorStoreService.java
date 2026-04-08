@@ -8,7 +8,7 @@ import com.google.gson.JsonObject;
 import com.ycy.aiapplication.chunk.VectorChunk;
 import com.ycy.aiapplication.framework.exception.ClientException;
 import com.ycy.aiapplication.vector.VectorStoreService;
-import com.ycy.aiapplication.vector.config.RAGDefaultProperties;
+import com.ycy.aiapplication.rag.config.RAGCollectionProperties;
 import io.milvus.v2.client.MilvusClientV2;
 import io.milvus.v2.service.vector.request.DeleteReq;
 import io.milvus.v2.service.vector.request.InsertReq;
@@ -42,7 +42,7 @@ public class MilvusVectorStoreService implements VectorStoreService {
 
 
     private final MilvusClientV2 milvusClient;
-    private final RAGDefaultProperties ragDefaultProperties;
+    private final RAGCollectionProperties ragCollectionProperties;
 
     /**
      * 批量写入文档切片向量。
@@ -132,7 +132,7 @@ public class MilvusVectorStoreService implements VectorStoreService {
         Assert.notNull(chunk, () -> new ClientException("Chunk对象不能为空"));
 
         String chunkId = chunk.getChunkId() != null ? chunk.getChunkId() : IdUtil.getSnowflakeNextIdStr();
-        float[] vector = extractVector(chunk, ragDefaultProperties.getDimension());
+        float[] vector = extractVector(chunk, ragCollectionProperties.getDimension());
 
         JsonObject row = new JsonObject();
         row.addProperty(FIELD_ID, chunkId);

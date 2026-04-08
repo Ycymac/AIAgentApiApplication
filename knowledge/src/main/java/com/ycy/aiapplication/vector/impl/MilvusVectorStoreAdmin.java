@@ -20,7 +20,7 @@ package com.ycy.aiapplication.vector.impl;
 import cn.hutool.core.lang.Assert;
 import com.ycy.aiapplication.framework.exception.ClientException;
 import com.ycy.aiapplication.vector.VectorStoreAdmin;
-import com.ycy.aiapplication.vector.config.RAGDefaultProperties;
+import com.ycy.aiapplication.rag.config.RAGCollectionProperties;
 import com.ycy.aiapplication.vector.common.VectorSpaceId;
 import com.ycy.aiapplication.vector.common.VectorSpaceSpec;
 import com.ycy.aiapplication.vector.exception.VectorCollectionAlreadyExistsException;
@@ -48,7 +48,7 @@ import java.util.Map;
 public class MilvusVectorStoreAdmin implements VectorStoreAdmin {
 
     private final MilvusClientV2 milvusClient;
-    private final RAGDefaultProperties ragDefaultProperties;
+    private final RAGCollectionProperties ragCollectionProperties;
 
     @Override
     public void ensureVectorSpace(VectorSpaceSpec spec) {
@@ -91,7 +91,7 @@ public class MilvusVectorStoreAdmin implements VectorStoreAdmin {
                 CreateCollectionReq.FieldSchema.builder()
                         .name("embedding")
                         .dataType(DataType.FloatVector)
-                        .dimension(ragDefaultProperties.getDimension())
+                        .dimension(ragCollectionProperties.getDimension())
                         .build()
         );
 
@@ -119,7 +119,7 @@ public class MilvusVectorStoreAdmin implements VectorStoreAdmin {
                 .collectionSchema(collectionSchema)
                 .primaryFieldName("id")
                 .vectorFieldName("embedding")
-                .metricType(ragDefaultProperties.getMetricType())
+                .metricType(ragCollectionProperties.getMetricType())
                 .consistencyLevel(ConsistencyLevel.BOUNDED)
                 .indexParams(List.of(hnswIndex))
                 .description(spec.getRemark())
