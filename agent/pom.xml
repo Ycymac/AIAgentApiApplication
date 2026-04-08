@@ -28,18 +28,6 @@
         <java.version>17</java.version>
     </properties>
     <dependencies>
-        <!-- SpringBoot Web 服务器相关依赖 -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
-        </dependency>
-
-        <!-- SpringBoot 单元测试相关依赖 -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-test</artifactId>
-            <scope>test</scope>
-        </dependency>
         <!-- 项目工具包相关依赖 -->
         <dependency>
             <groupId>com.alibaba.fastjson2</groupId>

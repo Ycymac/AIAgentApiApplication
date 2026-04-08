@@ -13,6 +13,7 @@ import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
+import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
@@ -22,6 +23,7 @@ import java.lang.reflect.Method;
  * 防止用户重复提交表单信息切面控制类
  */
 @Aspect
+@Component
 @RequiredArgsConstructor
 public class IdempotentSubmitAspect {
 
