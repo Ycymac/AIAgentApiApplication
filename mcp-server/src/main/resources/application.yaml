@@ -1,0 +1,13 @@
+server:
+  port: 9099
+
+spring:
+  application:
+    name: javis-mcp-server
+
+amap:
+  weather:
+    api:
+      key: 24bb8260ade273e374df784bec801c20
+
+
