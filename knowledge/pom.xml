@@ -29,6 +29,12 @@
             <version>0.0.1-SNAPSHOT</version>
         </dependency>
 
+        <dependency>
+            <groupId>com.ycy.aiapplication</groupId>
+            <artifactId>rag</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
+
         <!-- 项目工具包相关依赖 -->
         <dependency>
             <groupId>com.alibaba.fastjson2</groupId>

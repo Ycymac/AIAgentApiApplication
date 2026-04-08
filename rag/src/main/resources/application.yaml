@@ -39,3 +39,13 @@ knife4j:
   enable: true
   setting:
     language: zh_cn
+
+rag:
+  collection:
+    collection-name: knowledge_default_store
+    dimension: 1024
+    metric-type: COSINE
+  rewrite:
+    query-rewrite-enabled: true
+    query-rewrite-max-history-messages: 4
+    query-rewrite-max-history-chars: 500

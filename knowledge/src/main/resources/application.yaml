@@ -17,8 +17,3 @@ rocketmq:
     retry-times-when-send-failed: 1 #同步发送失败尝试次数
     retry-times-when-send-async-failed: 1 #异步发送失败尝试次数
 
-knowledge:
-  default:
-    collection-name: knowledge_default_store
-    dimension: 1024
-    metric-type: COSINE

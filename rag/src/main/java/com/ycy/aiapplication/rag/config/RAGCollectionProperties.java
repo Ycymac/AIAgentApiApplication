@@ -1,12 +1,12 @@
-package com.ycy.aiapplication.vector.config;
+package com.ycy.aiapplication.rag.config;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
 /**
- *  RAG系统默认配置
- *
+ * RAG系统向量数据库collection配置
+ * 对应ragent项目当中的RAGDefaultProperties
  * <p>
  * 用于管理 RAG 系统的默认向量数据库配置，包括集合名称、向量维度和度量类型等
  * </p>
@@ -23,8 +23,8 @@ import org.springframework.context.annotation.Configuration;
  */
 @Data
 @Configuration
-@ConfigurationProperties(prefix = "knowledge.default")
-public class RAGDefaultProperties {
+@ConfigurationProperties(prefix = "rag.collection")
+public class RAGCollectionProperties {
 
     /**
      * 默认向量集合名称
