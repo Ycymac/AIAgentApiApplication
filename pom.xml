@@ -172,6 +172,8 @@
                 <version>${elasticsearch-spring-boot-starter.version}</version>
             </dependency>
 
+
+
         </dependencies>
     </dependencyManagement>
 
