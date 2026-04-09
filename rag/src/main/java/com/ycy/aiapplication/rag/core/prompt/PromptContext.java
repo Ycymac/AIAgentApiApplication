@@ -3,7 +3,7 @@ package com.ycy.aiapplication.rag.core.prompt;
 import cn.hutool.core.util.StrUtil;
 import com.ycy.aiapplication.framework.convention.RetrievedChunk;
 
-import com.ycy.aiapplication.rag.core.intent.NodeScore;
+import com.ycy.aiapplication.rag.core.intent.common.NodeScore;
 import lombok.Builder;
 import lombok.Data;
 

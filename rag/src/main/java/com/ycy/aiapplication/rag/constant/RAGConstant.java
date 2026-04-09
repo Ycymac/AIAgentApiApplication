@@ -93,6 +93,11 @@ public class RAGConstant {
     public static final String INTENT_CLASSIFIER_PROMPT_PATH = "prompt/intent-classifier.st";
 
     /**
+     * 第一层粗分类提示词模板路径
+     */
+    public static final String INTENT_FIRST_LAYER_PROMPT_PATH = "prompt/intent-first-layer-classifier.st";
+
+    /**
      * 引导式问答提示词模板路径
      * 用于生成引导式问答的选项提示内容
      */

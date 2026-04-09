@@ -1,4 +1,4 @@
-package com.ycy.aiapplication.rag.core.intent;
+package com.ycy.aiapplication.rag.core.intent.common;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

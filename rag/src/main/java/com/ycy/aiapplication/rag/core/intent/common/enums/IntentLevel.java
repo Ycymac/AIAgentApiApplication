@@ -1,38 +1,40 @@
-package com.ycy.aiapplication.rag.core.intent;
+package com.ycy.aiapplication.rag.core.intent.common.enums;
 
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
 /**
- * 意图层级枚举
- * 用于表示知识库中意图的层级结构
+ * 意图层级枚举。
+ * 作用：
+ * 1. 描述意图树中的层级关系。
+ * 2. 为后续扩展更细粒度意图树结构保留层级能力。
  */
 @Getter
 @RequiredArgsConstructor
 public enum IntentLevel {
 
     /**
-     * 顶层：集团信息化 / 业务系统 / 中间件环境信息
+     * 顶层领域。
      */
     DOMAIN(0),
 
     /**
-     * 第二层：人事 / 行政 / OA系统 / Redis ...
+     * 中间分类层。
      */
     CATEGORY(1),
 
     /**
-     * 第三层：更具体的 Topic，如 系统介绍 / 数据安全 / 架构设计
+     * 具体主题层。
      */
     TOPIC(2);
 
     private final int code;
 
     /**
-     * 根据编码获取对应的意图层级
+     * 根据编码反查层级。
      *
      * @param code 层级编码
-     * @return 对应的IntentLevel枚举值，如果code为null或不存在则返回null
+     * @return 命中的层级枚举；未命中时返回 null
      */
     public static IntentLevel fromCode(Integer code) {
         if (code == null) {
@@ -47,9 +49,9 @@ public enum IntentLevel {
     }
 
     /**
-     * 返回枚举的名称
+     * 返回枚举名称。
      *
-     * @return 枚举名称字符串
+     * @return 枚举名
      */
     @Override
     public String toString() {

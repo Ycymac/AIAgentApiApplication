@@ -18,7 +18,7 @@
 package com.ycy.aiapplication.rag.core.prompt.plan;
 
 
-import com.ycy.aiapplication.rag.core.intent.NodeScore;
+import com.ycy.aiapplication.rag.core.intent.common.NodeScore;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
