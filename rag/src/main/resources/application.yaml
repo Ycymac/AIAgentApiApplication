@@ -41,10 +41,10 @@ knife4j:
     language: zh_cn
 
 rag:
-  collection:
-    collection-name: knowledge_default_store
-    dimension: 1024
-    metric-type: COSINE
+  intent:
+    first-layer-min-score: 0.55
+    knowledge-min-score: 0.45
+    knowledge-top-n: 3
   rewrite:
     query-rewrite-enabled: true
     query-rewrite-max-history-messages: 4

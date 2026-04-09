@@ -8,7 +8,7 @@ import com.google.gson.JsonObject;
 import com.ycy.aiapplication.chunk.VectorChunk;
 import com.ycy.aiapplication.framework.exception.ClientException;
 import com.ycy.aiapplication.vector.VectorStoreService;
-import com.ycy.aiapplication.rag.config.RAGCollectionProperties;
+import com.ycy.aiapplication.infrastructure.ai.config.RAGCollectionProperties;
 import io.milvus.v2.client.MilvusClientV2;
 import io.milvus.v2.service.vector.request.DeleteReq;
 import io.milvus.v2.service.vector.request.InsertReq;

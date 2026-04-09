@@ -1,4 +1,4 @@
-package com.ycy.aiapplication.rag.config;
+package com.ycy.aiapplication.infrastructure.ai.config;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
