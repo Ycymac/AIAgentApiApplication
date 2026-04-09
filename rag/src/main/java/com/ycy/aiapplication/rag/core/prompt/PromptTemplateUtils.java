@@ -27,7 +27,7 @@ public final class PromptTemplateUtils {
     private static final Pattern MULTI_BLANK_LINES = Pattern.compile("(\\n){3,}");
 
     /**
-     * 提示词氢气
+     * 提示词清洗
      * @param prompt 提示词模板
      */
     public static String cleanupPrompt(String prompt) {
