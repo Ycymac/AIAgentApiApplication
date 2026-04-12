@@ -49,3 +49,10 @@ rag:
     query-rewrite-enabled: true
     query-rewrite-max-history-messages: 4
     query-rewrite-max-history-chars: 500
+  memory:
+    history-keep-turns: 8
+    summary-enabled: true
+    summary-max-chars: 200
+    summary-start-turns: 9
+    title-max-length: 30
+    ttl-minutes: 60
