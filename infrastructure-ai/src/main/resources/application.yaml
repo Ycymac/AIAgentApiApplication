@@ -48,6 +48,7 @@ ai:
     executor-core-size: 2
     executor-max-size: 4
     executor-queue-capacity: 128
+    message-chunk-size: 5
 
 
 rag:

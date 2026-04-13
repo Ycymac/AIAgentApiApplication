@@ -171,5 +171,7 @@ public class AIModelProperties {
         private Integer executorMaxSize = 4;
 
         private Integer executorQueueCapacity = 128;
+
+        private Integer messageChunkSize = 5;
     }
 }
