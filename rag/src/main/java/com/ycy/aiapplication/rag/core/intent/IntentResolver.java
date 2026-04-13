@@ -13,8 +13,10 @@ import com.ycy.aiapplication.rag.core.rewrite.common.RewriteResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 三层意图识别总编排器。
@@ -53,18 +55,32 @@ public class IntentResolver {
     }
 
     /**
-     * 聚合多个子问题中的知识库命中节点。
-     *<p>
-     * @param subIntents 子问题路由结果列表
-     * @return 聚合后的知识库节点集合
+     * 聚合多个子问题中命中的知识库节点。
+     * <p>
+     * 说明：
+     * 1. 只聚合最终被判定为 KB 路由的节点结果。
+     * 2. 同一节点若在多个子问题中重复命中，则保留最高分那一条。
+     *
+     * @param subIntents 子问题意图列表。
+     * @return 去重并按分数降序排列后的知识库节点集合。
      */
     public IntentGroup mergeIntentGroup(List<SubQuestionIntent> subIntents) {
-        List<NodeScore> kbIntents = new ArrayList<>();
+        Map<String, NodeScore> kbIntentMap = new LinkedHashMap<>();
         for (SubQuestionIntent each : subIntents) {
             if (each.routeKind() == IntentKind.KB && CollUtil.isNotEmpty(each.nodeScores())) {
-                kbIntents.addAll(each.nodeScores());
+                for (NodeScore nodeScore : each.nodeScores()) {
+                    if (nodeScore.getNode() == null || nodeScore.getNode().getId() == null) {
+                        continue;
+                    }
+                    // 同一节点在多个子问题中可能重复出现，这里按最高分保留，便于后续 Prompt 规划。
+                    kbIntentMap.merge(nodeScore.getNode().getId(), nodeScore,
+                            (left, right) -> left.getScore() >= right.getScore() ? left : right);
+                }
             }
         }
+        List<NodeScore> kbIntents = kbIntentMap.values().stream()
+                .sorted(Comparator.comparingDouble(NodeScore::getScore).reversed())
+                .toList();
         return new IntentGroup(kbIntents);
     }
 

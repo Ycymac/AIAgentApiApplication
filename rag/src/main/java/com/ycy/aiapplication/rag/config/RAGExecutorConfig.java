@@ -1,5 +1,6 @@
 package com.ycy.aiapplication.rag.config;
 
+import com.alibaba.ttl.threadpool.TtlExecutors;
 import org.jetbrains.annotations.NotNull;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -20,10 +21,25 @@ public class RAGExecutorConfig {
                 60,
                 TimeUnit.SECONDS,
                 new LinkedBlockingQueue<>(200),
-                new NameThreadFactory("memorySummaryThreadPoolExecutor"),
+                new NameThreadFactory("memory_summary_threadPool_executor"),
                 new ThreadPoolExecutor.CallerRunsPolicy()
         );
     }
+
+    @Bean("ragInnerRetrievalThreadPoolExecutor")
+    public Executor ragInnerRetrievalThreadPoolExecutor(){
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(
+                CPU_COUNT << 1,
+                CPU_COUNT << 2,
+                60,
+                TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(100),
+                new NameThreadFactory("rag_inner_retrieval_executor"),
+                new ThreadPoolExecutor.CallerRunsPolicy()
+        );
+        return TtlExecutors.getTtlExecutor(executor);
+    }
+
 
 
     private static final class NameThreadFactory implements ThreadFactory{
@@ -34,7 +50,7 @@ public class RAGExecutorConfig {
         @Override
         public Thread newThread(@NotNull Runnable runnable) {
             Thread thread = new Thread(runnable);
-            thread.setName(prefix+sequence.getAndIncrement());
+            thread.setName(prefix+"_"+sequence.getAndIncrement());
             return thread;
         }
     }

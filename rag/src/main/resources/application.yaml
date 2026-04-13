@@ -56,3 +56,13 @@ rag:
     summary-start-turns: 9
     title-max-length: 30
     ttl-minutes: 60
+  vector:
+    type: milvus
+  retrieve:
+    channels:
+      intent-directed:
+        enabled: true
+        top-k-multiplier: 2
+      vector-global:
+        enabled: true
+        top-k-multiplier: 3
