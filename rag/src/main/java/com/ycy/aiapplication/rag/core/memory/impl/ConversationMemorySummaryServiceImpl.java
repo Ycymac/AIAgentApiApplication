@@ -13,7 +13,6 @@ import com.ycy.aiapplication.rag.dao.entity.ConversationSummaryDO;
 import com.ycy.aiapplication.rag.service.ConversationComplexQueryService;
 import com.ycy.aiapplication.rag.service.ConversationMessageService;
 import com.ycy.aiapplication.rag.service.bo.ConversationSummaryBO;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
@@ -31,7 +30,6 @@ import static com.ycy.aiapplication.rag.constant.RAGConstant.CONVERSATION_SUMMAR
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ConversationMemorySummaryServiceImpl implements ConversationMemorySummaryService {
 
     private static final String SUMMARY_PREFIX = "对话摘要：";
@@ -47,6 +45,21 @@ public class ConversationMemorySummaryServiceImpl implements ConversationMemoryS
 
     @Qualifier("memorySummaryThreadPoolExecutor")
     private final Executor memorySummaryExecutor;
+
+    public ConversationMemorySummaryServiceImpl(ConversationComplexQueryService conversationGroupService,
+                                                ConversationMessageService conversationMessageService,
+                                                MemoryProperties memoryProperties, LLMService llmService,
+                                                PromptTemplateLoader promptTemplateLoader,
+                                                RedissonClient redissonClient,
+                                                @Qualifier("memorySummaryThreadPoolExecutor") Executor memorySummaryExecutor) {
+        this.conversationGroupService = conversationGroupService;
+        this.conversationMessageService = conversationMessageService;
+        this.memoryProperties = memoryProperties;
+        this.llmService = llmService;
+        this.promptTemplateLoader = promptTemplateLoader;
+        this.redissonClient = redissonClient;
+        this.memorySummaryExecutor = memorySummaryExecutor;
+    }
 
     /**
      * 判断是否需要执行摘要压缩，需要的话使用CompletableFuture异步执行

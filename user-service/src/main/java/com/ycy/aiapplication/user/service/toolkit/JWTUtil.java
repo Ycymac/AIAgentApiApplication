@@ -20,13 +20,13 @@ public class JWTUtil {
     /**
      * 配置文件密钥
      */
-    @Value("${app.jwt.secret}")
+    @Value("${app.jwt.secret:AiApplicationSecretKeyForHarmonyOsApp2026}")
     private String SECRET;
 
     /**
      * jwt过期时间
      */
-    @Value("${app.jwt.expiration}")
+    @Value("${app.jwt.expiration:86400000}")
     private Long EXPIRATION_TIME;
 
     /**
