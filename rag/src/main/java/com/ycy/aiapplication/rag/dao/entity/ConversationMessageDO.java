@@ -33,7 +33,7 @@ import java.util.Date;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-@TableName("message")
+@TableName("conversation_message")
 public class ConversationMessageDO {
 
     /**

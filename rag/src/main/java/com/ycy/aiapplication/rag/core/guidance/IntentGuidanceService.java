@@ -44,12 +44,10 @@ public class IntentGuidanceService {
 
     /**
      * 为当前请求生成引导式提示。
-     *
-     * @param question 当前主问题，保留该参数以兼容现有调用入口
      * @param subIntents 当前请求对应的子问题意图列表
      * @return 若存在需要引导的 UNKNOWN 子问题，则返回对应 prompt；否则返回 none
      */
-    public GuidanceDecision detectAmbiguity(String question, List<SubQuestionIntent> subIntents) {
+    public GuidanceDecision detectAmbiguity(List<SubQuestionIntent> subIntents) {
         if (!Boolean.TRUE.equals(guidanceProperties.getEnabled()) || CollUtil.isEmpty(subIntents)) {
             return GuidanceDecision.none();
         }

@@ -34,7 +34,7 @@ import java.util.Date;
 @AllArgsConstructor
 @Builder
 @Accessors(chain = true)
-@TableName("onversation_summary")
+@TableName("conversation_summary")
 public class ConversationSummaryDO {
 
     /**
