@@ -12,7 +12,7 @@ spring:
       password: 206721
 
 rocketmq:
-  name-server: common-rocketmq-dev.magestack.cn:9876
+  name-server: 192.168.88.131:9876
   producer:
     group: aiapplication_knowledge-service_common-message-execute_pg
     send-message-timeout: 2000
@@ -22,10 +22,11 @@ rocketmq:
 
 aliyun:
   oss:
-    endpoint: your-endpoint
-    accessKeyId: your-key
-    accessKeySecret: your-secret
-    bucketName: your-bucketName
+    endpoint: needed
+    accessKeyId: needed
+    accessKeySecret: needed
+    bucketName: needed
+
 
 
 mybatis-plus:
@@ -103,14 +104,14 @@ ai:
   providers:
     bailian:
       enabled: true
-      api-key: key-needed
+      api-key: needed
       base-url: https://dashscope.aliyuncs.com
       embedding-path: /api/v1/services/embeddings/text-embedding/text-embedding
       rerank-path: /api/v1/services/rerank/text-rerank/text-rerank
       chat-path: /compatible-mode/v1/chat/completions
     siliconflow:
       enabled: true
-      api-key: key-needed
+      api-key: needed
       base-url: https://api.siliconflow.cn
       embedding-path: /v1/embeddings
       chat-path: /v1/chat/completions
@@ -131,13 +132,13 @@ ai:
       - qwen3-rerank
   chat:
     default-provider: bailian
-    default-model: qwen3.6-plus
+    default-model: qwen3.5-flash
     bailian-fallback-enabled: true
     silicon-flow-fallback-enabled: true
     bailian-back-up-model: qwen-plus
     silicon-flow-back-up-model: deepseek-ai/DeepSeek-V3.2
     models:
-      bailian_1: qwen3.6-plus
+      bailian_1: qwen3.5-flash
       bailian_2: qwen3.5-plus
       siliconflow_1: Pro/zai-org/GLM-5
       siliconflow_2: Pro/deepseek-ai/DeepSeek-V3.2

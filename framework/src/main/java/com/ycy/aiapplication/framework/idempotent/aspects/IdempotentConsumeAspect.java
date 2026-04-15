@@ -42,6 +42,7 @@ public final class IdempotentConsumeAspect {
      */
     @Around("@annotation(com.ycy.aiapplication.framework.idempotent.annotations.IdempotentConsume)")
     public Object idempotentConsume(ProceedingJoinPoint joinPoint) throws Throwable {
+        log.info("IdempotentConsumeAspect triggered, joinPoint={}", joinPoint.getSignature());
         IdempotentConsume idempotentConsume = getIdempotentConsumeAnnotation(joinPoint);
         String uniqueKey = idempotentConsume.keyPrefix()
                 + SpELUtil.parseKey(idempotentConsume.key(), ((MethodSignature) joinPoint.getSignature()).getMethod(), joinPoint.getArgs());

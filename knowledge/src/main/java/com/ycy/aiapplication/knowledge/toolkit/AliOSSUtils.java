@@ -3,28 +3,38 @@ package com.ycy.aiapplication.knowledge.toolkit;
 import cn.hutool.core.util.IdUtil;
 import com.aliyun.oss.ClientException;
 import com.aliyun.oss.OSS;
+import com.aliyun.oss.model.OSSObject;
 import com.ycy.aiapplication.knowledge.config.OSSConfiguration;
+import lombok.Builder;
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * OSS storage helper.
  */
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public final class AliOSSUtils {
 
     private static final long NO_LIMIT = -1L;
+    private static final long GET_OBJECT_TIMEOUT_SECONDS = 5L;
 
     private final OSSConfiguration ossConfig;
     private final OSS ossClient;
 
-    public String upload(MultipartFile file, String kbId, long maxBytes) {
+    public StoredObject upload(MultipartFile file, String kbId, long maxBytes) {
         if (maxBytes == NO_LIMIT) {
             return doUpload(file, kbId);
         }
@@ -34,14 +44,14 @@ public final class AliOSSUtils {
     /**
      * 无限制上传
      */
-    public String doUpload(MultipartFile file, String kbId) {
+    public StoredObject doUpload(MultipartFile file, String kbId) {
         return doUploadInternal(file, kbId, null);
     }
 
     /**
      * 带有字节数量限制上传
      */
-    public String doUploadWithLimit(MultipartFile file, String kbId, long maxBytes) {
+    public StoredObject doUploadWithLimit(MultipartFile file, String kbId, long maxBytes) {
         if (maxBytes <= 0) {
             throw new IllegalArgumentException("文件上传限制大于0字节");
         }
@@ -51,12 +61,15 @@ public final class AliOSSUtils {
     /**
      * 内部上传方法
      */
-    private String doUploadInternal(MultipartFile file, String kbId, Long maxBytes) {
+    private StoredObject doUploadInternal(MultipartFile file, String kbId, Long maxBytes) {
         validateFile(file, kbId, maxBytes);
         try (InputStream inputStream = file.getInputStream()) {
             String fileName = buildFileName(file, kbId);
             ossClient.putObject(ossConfig.getBucketName(), fileName, inputStream);
-            return buildFileUrl(fileName);
+            return StoredObject.builder()
+                    .objectKey(fileName)
+                    .fileUrl(buildFileUrl(fileName))
+                    .build();
         } catch (IOException e) {
             throw new ClientException("上传文件失败", e);
         }
@@ -101,6 +114,39 @@ public final class AliOSSUtils {
         return originalFileName.substring(dotIndex);
     }
 
+    public InputStream getObjectStream(String objectKey) {
+        if (!StringUtils.hasText(objectKey)) {
+            throw new IllegalArgumentException("objectKey must not be blank");
+        }
+        try {
+            return CompletableFuture
+                    .supplyAsync(() -> {
+                        try {
+                            OSSObject object = ossClient.getObject(ossConfig.getBucketName(), objectKey);
+                            return object.getObjectContent();
+                        } catch (RuntimeException ex) {
+                            throw new CompletionException(ex);
+                        }
+                    })
+                    .get(GET_OBJECT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (TimeoutException ex) {
+            log.error("Read OSS object timed out, bucketName={}, objectKey={}, timeoutSeconds={}",
+                    ossConfig.getBucketName(), objectKey, GET_OBJECT_TIMEOUT_SECONDS, ex);
+            throw new ClientException("Read OSS object timed out: " + objectKey, ex);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            log.error("Read OSS object interrupted, bucketName={}, objectKey={}",
+                    ossConfig.getBucketName(), objectKey, ex);
+            throw new ClientException("Read OSS object interrupted: " + objectKey, ex);
+        } catch (java.util.concurrent.ExecutionException ex) {
+            Throwable cause = ex.getCause();
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw new ClientException("读取 OSS 文件失败", ex);
+        }
+    }
+
     private String buildFileUrl(String fileName) {
         String endPoint = ossConfig.getEndPoint();
         String[] endPointParts = endPoint.split("//", 2);
@@ -108,6 +154,13 @@ public final class AliOSSUtils {
             return endPoint + "/" + fileName;
         }
         return endPointParts[0] + "//" + ossConfig.getBucketName() + "." + endPointParts[1] + "/" + fileName;
+    }
+
+    @Getter
+    @Builder
+    public static class StoredObject {
+        private final String objectKey;
+        private final String fileUrl;
     }
 
 }

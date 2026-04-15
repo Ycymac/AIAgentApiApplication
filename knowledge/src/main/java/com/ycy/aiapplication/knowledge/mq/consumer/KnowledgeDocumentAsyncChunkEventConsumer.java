@@ -3,6 +3,7 @@ package com.ycy.aiapplication.knowledge.mq.consumer;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.ycy.aiapplication.framework.idempotent.annotations.IdempotentConsume;
 import com.ycy.aiapplication.framework.mq.base.MessageWrapper;
+import com.ycy.aiapplication.knowledge.common.enums.DocumentStatus;
 import com.ycy.aiapplication.knowledge.dao.entity.KnowledgeDocumentDO;
 import com.ycy.aiapplication.knowledge.dao.mapper.KnowledgeDocumentMapper;
 import com.ycy.aiapplication.knowledge.mq.event.KnowledgeDocumentAsyncChunkEvent;
@@ -57,9 +58,20 @@ public class KnowledgeDocumentAsyncChunkEventConsumer implements RocketMQListene
 
         log.info("Chunk consumer received message, docId={}, messageKeys={}, currentStatus={}",
                 docId, messageWrapper.getKeys(), documentDO.getStatus());
-        knowledgeDocumentService.executeChunk(docId);
-        log.info("Chunk consumer finished message handling, docId={}, messageKeys={}",
-                docId, messageWrapper.getKeys());
+        if (DocumentStatus.RUNNING.getCode().equals(documentDO.getStatus())) {
+            log.info("Chunk consumer skipped because document is already running, docId={}, messageKeys={}",
+                    docId, messageWrapper.getKeys());
+            return;
+        }
+        try {
+            knowledgeDocumentService.executeChunk(docId);
+            log.info("Chunk consumer finished message handling, docId={}, messageKeys={}, finalStatus=success",
+                    docId, messageWrapper.getKeys());
+        } catch (RuntimeException ex) {
+            log.error("Chunk consumer execution failed, docId={}, messageKeys={}, currentStatus={}, message={}",
+                    docId, messageWrapper.getKeys(), documentDO.getStatus(), message, ex);
+            throw ex;
+        }
     }
 
     private KnowledgeDocumentDO getKnowledgeDocument(String docId) {

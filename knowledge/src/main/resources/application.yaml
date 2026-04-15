@@ -1,6 +1,10 @@
 ﻿spring:
   application:
     name: knowledge
+  servlet:
+    multipart:
+      max-file-size: 500MB
+      max-request-size: 500MB
   datasource:
     url: jdbc:mysql://127.0.0.1:3306/ai_application?useUnicode=true&characterEncoding=UTF-8&rewriteBatchedStatements=true&allowMultiQueries=true&serverTimezone=Asia/Shanghai
     username: root
@@ -22,24 +26,83 @@ mybatis-plus:
 
 aliyun:
   oss:
-    endpoint: your-endpoint
-    accessKeyId: your-key
-    accessKeySecret: your-secret
-    bucketName: bucket-name
+    endpoint: needed
+    accessKeyId: needed
+    accessKeySecret: needed
+    bucketName: needed
 
 rocketmq:
-  name-server: common-rocketmq-dev.magestack.cn:9876
+  name-server: 192.168.88.131:9876
   producer:
     group: aiapplication_knowledge-service_common-message-execute_pg
-    send-message-timeout: 2000
-    retry-times-when-send-failed: 1 #同步发送失败尝试次数
-    retry-times-when-send-async-failed: 1 #异步发送失败尝试次数
+    send-message-timeout: 15000
+    retry-times-when-send-failed: 3 #同步发送失败尝试次数
+    retry-times-when-send-async-failed: 3 #异步发送失败尝试次数
+
+
+logging:
+  level:
+    org.apache.rocketmq: DEBUG
+    com.ycy.aiapplication.knowledge.mq: DEBUG
 
 rag:
   collection:
     collection-name: knowledge_default_store
     dimension: 1024
     metric-type: COSINE
+
+ai:
+  providers:
+    bailian:
+      enabled: true
+      api-key: needed
+      base-url: https://dashscope.aliyuncs.com
+      embedding-path: /api/v1/services/embeddings/text-embedding/text-embedding
+      rerank-path: /api/v1/services/rerank/text-rerank/text-rerank
+      chat-path: /compatible-mode/v1/chat/completions
+    siliconflow:
+      enabled: true
+      api-key: needed
+      base-url: https://api.siliconflow.cn
+      embedding-path: /v1/embeddings
+      chat-path: /v1/chat/completions
+  embedding:
+    default-provider: bailian
+    fallback-enabled: true
+    fallback-order:
+      - siliconflow
+    batch-size: 16
+    dimension: 1024
+    models:
+      bailian: text-embedding-v4
+      siliconflow: Qwen/Qwen3-Embedding-0.6B
+  rerank:
+    provider: bailian
+    primary-model: qwen3-vl-rerank
+    backup-models:
+      - qwen3-rerank
+  chat:
+    default-provider: bailian
+    default-model: qwen3.5-flash
+    bailian-fallback-enabled: true
+    silicon-flow-fallback-enabled: true
+    bailian-back-up-model: qwen-plus
+    silicon-flow-back-up-model: deepseek-ai/DeepSeek-V3.2
+    models:
+      bailian_1: qwen3.5-flash
+      bailian_2: qwen3.5-plus
+      siliconflow_1: Pro/zai-org/GLM-5
+      siliconflow_2: Pro/deepseek-ai/DeepSeek-V3.2
+  selection:
+    failure-threshold: 2
+    open-duration-ms: 30000
+  stream:
+    first-packet-timeout-seconds: 60
+    executor-core-size: 2
+    executor-max-size: 4
+    executor-queue-capacity: 128
+    message-chunk-size: 5
+
 
 milvus:
   uri: http://192.168.88.131:19530

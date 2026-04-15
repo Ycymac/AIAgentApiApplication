@@ -16,6 +16,7 @@ import com.ycy.aiapplication.chunk.ChunkingMode;
 import com.ycy.aiapplication.chunk.ChunkingStrategyFactory;
 import com.ycy.aiapplication.chunk.VectorChunk;
 import com.ycy.aiapplication.chunk.records.ChunkingOptions;
+import com.ycy.aiapplication.framework.errorcode.BaseErrorCode;
 import com.ycy.aiapplication.framework.exception.ClientException;
 import com.ycy.aiapplication.framework.exception.ServiceException;
 
@@ -54,10 +55,15 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.net.URLConnection;
+import java.net.URISyntaxException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.ZoneId;
 import java.util.Date;
 import java.util.HashMap;
@@ -65,6 +71,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 
@@ -85,6 +96,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     private static final int DEFAULT_PAGE_SIZE = 10;
     //默认搜索返回条数
     private static final int DEFAULT_SEARCH_LIMIT = 8;
+    private static final long DOCUMENT_PARSE_TIMEOUT_SECONDS = 15L;
 
     private final KnowledgeDocumentMapper knowledgeDocumentMapper;
     private final KnowledgeDocumentChunkLogMapper knowledgeDocumentChunkLogMapper;
@@ -125,6 +137,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         ProcessMode processMode = normalizeProcessMode(requestParam.getProcessMode());
         ChunkingMode chunkingMode = normalizeChunkingMode(requestParam.getChunkStrategy());
         String chunkConfig = normalizeChunkConfig(requestParam.getChunkConfig(), chunkingMode);
+        AliOSSUtils.StoredObject storedObject = uploadFileIfNecessary(sourceType, kbId, file);
 
         KnowledgeDocumentDO documentDO = KnowledgeDocumentDO.builder()
                 .kbId(kbDO.getId())
@@ -135,7 +148,8 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
                 .scheduleCron(StrUtil.blankToDefault(requestParam.getScheduleCron(), null))
                 .enabled(1)
                 .chunkCount(0)
-                .fileUrl(uploadFileIfNecessary(sourceType, kbId, file))
+                .fileUrl(storedObject == null ? null : storedObject.getFileUrl())
+                .objectKey(storedObject == null ? null : storedObject.getObjectKey())
                 .fileType(resolveFileType(sourceType, requestParam, file))
                 .fileSize(resolveFileSize(sourceType, file))
                 .processMode(processMode.getValue())
@@ -221,6 +235,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         KnowledgeBaseDO kbDO = getKnowledgeBase(documentDO.getKbId());
         KnowledgeDocumentChunkLogDO chunkLog = createRunningChunkLog(documentDO);
         String collectionName = kbDO.getCollectionName();
+        String currentStage = "init";
         log.info("开始执行分块任务, docId={}, kbId={}, collectionName={}, processMode={}, chunkStrategy={}",
                 documentDO.getId(), documentDO.getKbId(), collectionName, documentDO.getProcessMode(), documentDO.getChunkStrategy());
 
@@ -235,10 +250,12 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         long persistDuration = 0L;
 
         try {
+            currentStage = "mark-running";
             markDocumentRunning(documentDO);
             log.info("文档状态切换为 running, docId={}", docId);
 
             // 第一步：读取文档来源，并通过 parser 抽取纯文本。
+            currentStage = "extract-text";
             long extractStart = System.currentTimeMillis();
             String extractedText = extractDocumentText(documentDO);
             extractDuration = System.currentTimeMillis() - extractStart;
@@ -246,6 +263,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
                     docId, extractDuration, extractedText == null ? 0 : extractedText.length());
 
             // 第二步：按文档当前保存的分块策略与分块配置执行切分。
+            currentStage = "chunk-text";
             long chunkStart = System.currentTimeMillis();
             List<VectorChunk> chunks = doChunk(documentDO, extractedText);
             chunkDuration = System.currentTimeMillis() - chunkStart;
@@ -253,12 +271,14 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
                     docId, chunks.size(), chunkDuration);
 
             // 第三步：同步调用 embedding 服务，为每个 chunk 回填向量。
+            currentStage = "embed-chunks";
             long embedStart = System.currentTimeMillis();
             enrichEmbedding(kbDO, chunks);
             embedDuration = System.currentTimeMillis() - embedStart;
             log.info("分块向量化完成 docId={}, embedDuration={}ms", docId, embedDuration);
 
             //第四步：执行向量持久化保存&向量数据库保存
+            currentStage = "persist-chunks";
             long persistStart = System.currentTimeMillis();
             replaceDocumentVectors(collectionName, documentDO.getId(), chunks);
             replaceDocumentChunks(kbDO, documentDO, chunks);
@@ -276,6 +296,17 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
                     docId, System.currentTimeMillis() - totalStart, chunkLog.getId());
         } catch (Exception ex) {
             log.error("执行知识库文档分块失败, docId={}", docId, ex);
+            log.error("executeChunk context, docId={}, kbId={}, stage={}, sourceType={}, fileUrl={}, objectKey={}, sourceLocation={}, processMode={}, chunkStrategy={}, chunkLogId={}",
+                    docId,
+                    documentDO.getKbId(),
+                    currentStage,
+                    documentDO.getSourceType(),
+                    documentDO.getFileUrl(),
+                    documentDO.getObjectKey(),
+                    documentDO.getSourceLocation(),
+                    documentDO.getProcessMode(),
+                    documentDO.getChunkStrategy(),
+                    chunkLog.getId());
             markDocumentFailed(documentDO);
             fillFailedLog(chunkLog, extractDuration, chunkDuration, embedDuration, persistDuration, totalStart, ex);
             knowledgeDocumentChunkLogMapper.updateById(chunkLog);
@@ -690,10 +721,120 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         String fileName = resolveSourceFileName(documentDO);
         String mimeType = probeMimeType(documentDO, fileName);
         DocumentParser parser = selectParser(fileName, mimeType);
-        try (InputStream inputStream = openSourceStream(documentDO)) {
-            return parser.extractText(inputStream, fileName);
+        Path tempFile = null;
+        log.info("Preparing document extraction, docId={}, fileName={}, mimeType={}, parser={}, sourceType={}, fileUrl={}, objectKey={}, sourceLocation={}",
+                documentDO.getId(),
+                fileName,
+                mimeType,
+                parser.getClass().getSimpleName(),
+                documentDO.getSourceType(),
+                documentDO.getFileUrl(),
+                documentDO.getObjectKey(),
+                documentDO.getSourceLocation());
+        try {
+            tempFile = downloadSourceToTempFile(documentDO, fileName);
+            log.info("Document source downloaded to temp file, docId={}, fileName={}, tempFile={}",
+                    documentDO.getId(), fileName, tempFile);
         } catch (IOException ex) {
-            throw new ServiceException("Failed to read document source: " + fileName);
+            log.error("Document source download failed, docId={}, fileName={}, mimeType={}, parser={}, sourceType={}, fileUrl={}, objectKey={}, sourceLocation={}",
+                    documentDO.getId(),
+                    fileName,
+                    mimeType,
+                    parser.getClass().getSimpleName(),
+                    documentDO.getSourceType(),
+                    documentDO.getFileUrl(),
+                    documentDO.getObjectKey(),
+                    documentDO.getSourceLocation(),
+                    ex);
+            throw new ServiceException("Failed to read document source: " + fileName, ex, BaseErrorCode.SERVICE_ERROR);
+        }
+        try {
+            log.info("Starting document parsing, docId={}, fileName={}, parser={}, tempFile={}, timeoutSeconds={}",
+                    documentDO.getId(), fileName, parser.getClass().getSimpleName(), tempFile, DOCUMENT_PARSE_TIMEOUT_SECONDS);
+            String text = extractTextWithTimeout(parser, tempFile, fileName, documentDO.getId());
+            log.info("Document extraction finished, docId={}, fileName={}, parser={}, textLength={}",
+                    documentDO.getId(),
+                    fileName,
+                    parser.getClass().getSimpleName(),
+                    text == null ? 0 : text.length());
+            return text;
+        } catch (RuntimeException ex) {
+            log.error("Document extraction failed, docId={}, fileName={}, mimeType={}, parser={}, tempFile={}, sourceType={}, fileUrl={}, objectKey={}, sourceLocation={}",
+                    documentDO.getId(),
+                    fileName,
+                    mimeType,
+                    parser.getClass().getSimpleName(),
+                    tempFile,
+                    documentDO.getSourceType(),
+                    documentDO.getFileUrl(),
+                    documentDO.getObjectKey(),
+                    documentDO.getSourceLocation(),
+                    ex);
+            throw ex;
+        } finally {
+            deleteTempFileQuietly(tempFile, documentDO.getId(), fileName);
+        }
+    }
+
+    private String extractTextWithTimeout(DocumentParser parser, Path tempFile, String fileName, String docId) {
+        CompletableFuture<String> future = CompletableFuture.supplyAsync(() -> {
+            try (InputStream inputStream = new FileInputStream(tempFile.toFile())) {
+                return parser.extractText(inputStream, fileName);
+            } catch (IOException ex) {
+                throw new CompletionException(new ServiceException(
+                        "Failed to read temporary document file: " + fileName, ex, BaseErrorCode.SERVICE_ERROR));
+            }
+        });
+        try {
+            return future.get(DOCUMENT_PARSE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (TimeoutException ex) {
+            future.cancel(true);
+            log.error("Document parsing timed out, docId={}, fileName={}, parser={}, tempFile={}, timeoutSeconds={}",
+                    docId, fileName, parser.getClass().getSimpleName(), tempFile, DOCUMENT_PARSE_TIMEOUT_SECONDS, ex);
+            throw new ServiceException("Document parsing timed out: " + fileName, ex, BaseErrorCode.SERVICE_ERROR);
+        } catch (InterruptedException ex) {
+            future.cancel(true);
+            Thread.currentThread().interrupt();
+            log.error("Document parsing interrupted, docId={}, fileName={}, parser={}, tempFile={}",
+                    docId, fileName, parser.getClass().getSimpleName(), tempFile, ex);
+            throw new ServiceException("Document parsing interrupted: " + fileName, ex, BaseErrorCode.SERVICE_ERROR);
+        } catch (ExecutionException ex) {
+            Throwable cause = ex.getCause();
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw new ServiceException("Document parsing failed: " + fileName, ex, BaseErrorCode.SERVICE_ERROR);
+        }
+    }
+
+    private Path downloadSourceToTempFile(KnowledgeDocumentDO documentDO, String fileName) throws IOException {
+        String suffix = resolveTempFileSuffix(fileName);
+        Path tempFile = Files.createTempFile("knowledge-doc-", suffix);
+        boolean copied = false;
+        try (InputStream inputStream = openSourceStream(documentDO)) {
+            Files.copy(inputStream, tempFile, StandardCopyOption.REPLACE_EXISTING);
+            copied = true;
+            return tempFile;
+        } finally {
+            if (!copied) {
+                deleteTempFileQuietly(tempFile, documentDO.getId(), fileName);
+            }
+        }
+    }
+
+    private String resolveTempFileSuffix(String fileName) {
+        String suffix = FileUtil.extName(fileName);
+        return StringUtils.hasText(suffix) ? "." + suffix : ".tmp";
+    }
+
+    private void deleteTempFileQuietly(Path tempFile, String docId, String fileName) {
+        if (tempFile == null) {
+            return;
+        }
+        try {
+            Files.deleteIfExists(tempFile);
+        } catch (IOException ex) {
+            log.warn("Delete temp file failed, docId={}, fileName={}, tempFile={}", docId, fileName, tempFile, ex);
         }
     }
 
@@ -708,12 +849,46 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
      * @throws IOException IO 异常
      */
     private InputStream openSourceStream(KnowledgeDocumentDO documentDO) throws IOException {
-        String source = SourceType.FILE.getValue().equalsIgnoreCase(documentDO.getSourceType())
-                ? documentDO.getFileUrl()
-                : documentDO.getSourceLocation();
+        if (SourceType.FILE.getValue().equalsIgnoreCase(documentDO.getSourceType())) {
+            IOException sdkException = null;
+            String objectKey = resolveObjectKey(documentDO);
+            if (StringUtils.hasText(objectKey)) {
+                try {
+                    log.info("Opening document source by OSS objectKey, docId={}, objectKey={}", documentDO.getId(), objectKey);
+                    InputStream objectStream = aliOSSUtils.getObjectStream(objectKey);
+                    if (objectStream != null) {
+                        return objectStream;
+                    }
+                    log.error("Read OSS object by objectKey returned null, fallback to fileUrl, docId={}, objectKey={}, fileUrl={}",
+                            documentDO.getId(), objectKey, documentDO.getFileUrl());
+                } catch (RuntimeException ex) {
+                    sdkException = new IOException("Failed to read OSS object by objectKey: " + objectKey, ex);
+                    log.warn("Read OSS object by objectKey failed, docId={}, objectKey={}, fileUrl={}",
+                            documentDO.getId(), objectKey, documentDO.getFileUrl(), ex);
+                }
+            }
+            String fileUrl = documentDO.getFileUrl();
+            if (!StringUtils.hasText(fileUrl)) {
+                if (sdkException != null) {
+                    throw sdkException;
+                }
+                throw new ClientException("Document source must not be blank");
+            }
+            try {
+                log.info("Opening document source by fileUrl, docId={}, fileUrl={}", documentDO.getId(), fileUrl);
+                return new URL(fileUrl).openStream();
+            } catch (IOException ex) {
+                if (sdkException != null) {
+                    ex.addSuppressed(sdkException);
+                }
+                throw ex;
+            }
+        }
+        String source = documentDO.getSourceLocation();
         if (!StringUtils.hasText(source)) {
             throw new ClientException("Document source must not be blank");
         }
+        log.info("Opening document source by sourceLocation, docId={}, sourceLocation={}", documentDO.getId(), source);
         return new URL(source).openStream();
     }
 
@@ -781,9 +956,26 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
             return documentDO.getDocName();
         }
         String source = SourceType.FILE.getValue().equalsIgnoreCase(documentDO.getSourceType())
-                ? documentDO.getFileUrl()
+                ? Optional.ofNullable(documentDO.getObjectKey()).filter(StringUtils::hasText).orElse(documentDO.getFileUrl())
                 : documentDO.getSourceLocation();
         return Optional.ofNullable(FileUtil.getName(source)).filter(StringUtils::hasText).orElse("document.txt");
+    }
+
+    private String resolveObjectKey(KnowledgeDocumentDO documentDO) {
+        if (StringUtils.hasText(documentDO.getObjectKey())) {
+            return documentDO.getObjectKey();
+        }
+        if (!StringUtils.hasText(documentDO.getFileUrl())) {
+            return null;
+        }
+        try {
+            String path = new URL(documentDO.getFileUrl()).toURI().getPath();
+            return StrUtil.removePrefix(path, "/");
+        } catch (IOException | URISyntaxException ex) {
+            log.warn("Failed to resolve objectKey from fileUrl, docId={}, fileUrl={}",
+                    documentDO.getId(), documentDO.getFileUrl(), ex);
+            return null;
+        }
     }
 
     /**
@@ -896,7 +1088,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
      * @param file       上传文件
      * @return OSS 文件地址
      */
-    private String uploadFileIfNecessary(SourceType sourceType, String kbId, MultipartFile file) {
+    private AliOSSUtils.StoredObject uploadFileIfNecessary(SourceType sourceType, String kbId, MultipartFile file) {
         if (sourceType != SourceType.FILE) {
             return null;
         }

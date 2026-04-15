@@ -83,6 +83,8 @@ public class KnowledgeDocumentDO {
      */
     private String fileUrl;
 
+    private String objectKey;
+
     /**
      * 文件类型：pdf / markdown / docx 等
      */

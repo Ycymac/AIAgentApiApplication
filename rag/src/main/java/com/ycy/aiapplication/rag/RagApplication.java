@@ -8,7 +8,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
         scanBasePackages = {
                 "com.ycy.aiapplication.rag",
                 "com.ycy.aiapplication.infrastructure.ai",
-                "com.ycy.aiapplication.knowledge",
+                "com.ycy.aiapplication.knowledge.dao",
                 "com.ycy.aiapplication.user.service.dao.mapper",
                 "com.ycy.aiapplication.user.service.dao.entity",
                 "com.ycy.aiapplication.user.service.toolkit"
