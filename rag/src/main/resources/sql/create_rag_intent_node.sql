@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS `rag_intent_node` (
   `id` varchar(64) NOT NULL,
-  `kb_id` varchar(64) NOT NULL,
+  `kb_id` varchar(64) DEFAULT NULL,
   `name` varchar(128) NOT NULL,
   `description` varchar(512) DEFAULT NULL,
   `examples` text DEFAULT NULL,
