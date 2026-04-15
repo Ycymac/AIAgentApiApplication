@@ -57,7 +57,6 @@ public class ConversationMessageServiceImpl implements ConversationMessageServic
         List<ConversationMessageDO> records = conversationMessageMapper.selectList(
                 Wrappers.lambdaQuery(ConversationMessageDO.class)
                         .eq(ConversationMessageDO::getConversationId, conversationId)
-                        .eq(ConversationMessageDO::getUserId, userId)
                         .eq(ConversationMessageDO::getDeleted, 0)
                         //按照时间正序获取limit条的，拿到的就是从“旧”的到“新”的——也就是最老的limit条消息
                         //按照时间倒序获取limit条的，拿到的是按照时间倒序的（从“新”到“旧”的）——最新的limit条消息

@@ -178,7 +178,9 @@ public class StreamChatEventHandler implements StreamCallback {
     public void onComplete() {
         if(taskManager.isCancelled(taskId))
             return;
-        String messageId = memoryService.append(conversationId, String.valueOf(UserContext.getId()), ChatMessage.assistant(answer.toString()));
+        // The callback runs on an async streaming thread, so ThreadLocal user context
+        // may no longer be available here. Persist with the userId captured at start.
+        String messageId = memoryService.append(conversationId, userId, ChatMessage.assistant(answer.toString()));
         String title=resolveTitleForEvent();
         String messageIdText=StrUtil.isBlank(messageId)?null:messageId;
         sender.sendEvent(SSEEventType.FINISH.value(), new CompletionPayload(messageIdText, title));

@@ -146,7 +146,7 @@ public class AIModelProperties {
     @Data
     public static class Http {
 
-        private Long connectTimeoutMs = 3000L;
+        private Long connectTimeoutMs = 2500L;
 
         private Long readTimeoutMs = 10000L;
 
@@ -156,7 +156,7 @@ public class AIModelProperties {
     @Data
     public static class Selection {
 
-        private Integer failureThreshold = 2;
+        private Integer failureThreshold = 1;
 
         private Long openDurationMs = 30000L;
     }

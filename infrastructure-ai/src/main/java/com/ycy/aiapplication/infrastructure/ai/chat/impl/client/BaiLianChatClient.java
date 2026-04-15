@@ -40,8 +40,6 @@ public class BaiLianChatClient extends AbstractOpenAIStyleChatClient {
      */
     @Override
     protected void applyThinking(JsonObject requestBody, ChatRequest request, boolean stream) {
-        if (stream && Boolean.TRUE.equals(request.getThinking())) {
-            requestBody.addProperty("enable_thinking", true);
-        }
+        requestBody.addProperty("enable_thinking", Boolean.TRUE.equals(request.getThinking()));
     }
 }
