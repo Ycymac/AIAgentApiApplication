@@ -98,7 +98,7 @@ public class IntervieweeFormServiceImpl implements IntervieweeFormService {
                 .projectExperiences(writeJson(requestParam.getProjectExperiences()))
                 .build();
         intervieweeFormDOMapper.updateById(updateIntervieweeFormDO);
-        removeFormNameCache(oldIntervieweeFormDO.getId(), oldIntervieweeFormDO.getFormName(), userId);
+        removeFormNameCache(oldIntervieweeFormDO.getId(), userId);
         addOrRefreshFormNameCache(oldIntervieweeFormDO.getId(), requestParam.getFormName(), userId, oldIntervieweeFormDO.getCreateTime());
         log.info("修改简历成功，userId:{}, formId:{}", userId, formId);
     }
@@ -110,7 +110,7 @@ public class IntervieweeFormServiceImpl implements IntervieweeFormService {
         Long userId = getCurrentUserId();
         IntervieweeFormDO intervieweeFormDO = getIntervieweeFormByIdAndUserId(formId, userId);
         intervieweeFormDOMapper.deleteById(formId);
-        removeFormNameCache(intervieweeFormDO.getId(), intervieweeFormDO.getFormName(), userId);
+        removeFormNameCache(intervieweeFormDO.getId(), userId);
         log.info("删除简历成功，userId:{}, formId:{}", userId, formId);
     }
 
@@ -118,7 +118,11 @@ public class IntervieweeFormServiceImpl implements IntervieweeFormService {
     public IntervieweeFormRespDTO searchIntervieweeFormById(String id) {
         Long formId = parseFormId(id);
         Long userId = getCurrentUserId();
-        IntervieweeFormDO intervieweeFormDO = getIntervieweeFormByIdAndUserId(formId, userId);
+        IntervieweeFormDO intervieweeFormDO = findIntervieweeFormByIdAndUserId(formId, userId);
+        if (ObjectUtil.isNull(intervieweeFormDO)) {
+            removeFormNameCache(formId, userId);
+            throw new ClientException("绠€鍘嗕笉瀛樺湪鎴栨棤璁块棶鏉冮檺锛?");
+        }
         return toRespDTO(intervieweeFormDO);
     }
 
@@ -260,6 +264,13 @@ public class IntervieweeFormServiceImpl implements IntervieweeFormService {
         return intervieweeFormDO;
     }
 
+    private IntervieweeFormDO findIntervieweeFormByIdAndUserId(Long id, Long userId) {
+        LambdaQueryWrapper<IntervieweeFormDO> queryWrapper = new LambdaQueryWrapper<IntervieweeFormDO>()
+                .eq(IntervieweeFormDO::getId, id)
+                .eq(IntervieweeFormDO::getUserId, userId);
+        return intervieweeFormDOMapper.selectOne(queryWrapper);
+    }
+
     private void addOrRefreshFormNameCache(Long id, String formName, Long userId, Date createTime) {
         String cacheKey = String.format(UserServiceRedisConstant.INTERVIEWEE_FORM_NAME_CACHE_KEY, userId);
         String cacheValue = id + "|" + formName;
@@ -267,10 +278,20 @@ public class IntervieweeFormServiceImpl implements IntervieweeFormService {
         stringRedisTemplate.opsForZSet().add(cacheKey, cacheValue, timeStamp);
     }
 
-    private void removeFormNameCache(Long id, String formName, Long userId) {
+    private void removeFormNameCache(Long id, Long userId) {
         String cacheKey = String.format(UserServiceRedisConstant.INTERVIEWEE_FORM_NAME_CACHE_KEY, userId);
-        String cacheValue = id + "|" + formName;
-        stringRedisTemplate.opsForZSet().remove(cacheKey, cacheValue);
+        Set<String> cacheValues = stringRedisTemplate.opsForZSet().range(cacheKey, 0, -1);
+        if (CollectionUtil.isEmpty(cacheValues)) {
+            return;
+        }
+        String cachePrefix = id + "|";
+        List<String> staleCacheValues = cacheValues.stream()
+                .filter(each -> StrUtil.isNotBlank(each) && each.startsWith(cachePrefix))
+                .toList();
+        if (CollectionUtil.isEmpty(staleCacheValues)) {
+            return;
+        }
+        stringRedisTemplate.opsForZSet().remove(cacheKey, staleCacheValues.toArray(new String[0]));
     }
 
     private IntervieweeFormRespDTO toRespDTO(IntervieweeFormDO intervieweeFormDO) {

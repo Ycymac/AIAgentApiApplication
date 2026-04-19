@@ -28,4 +28,9 @@ public interface RecordService {
      */
     InterviewRecordRespDTO searchInterviewRecordById(String id);
 
+    /**
+     * 删除对应记录
+     */
+    void deleteInterviewRecord(String id);
+
 }

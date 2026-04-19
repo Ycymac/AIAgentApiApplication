@@ -11,9 +11,9 @@ import com.ycy.aiapplication.dto.req.FuzzySearchInterviewNameReqDTO;
 import com.ycy.aiapplication.dto.resp.FuzzySearchInterviewRecordRespDTO;
 import com.ycy.aiapplication.dto.resp.InterviewRecordRespDTO;
 import com.ycy.aiapplication.dto.resp.SearchInterviewNameAndIdRespDTO;
-import com.ycy.aiapplication.service.RecordService;
-import com.ycy.aiapplication.framework.exception.ClientException;
 import com.ycy.aiapplication.framework.context.UserContext;
+import com.ycy.aiapplication.framework.exception.ClientException;
+import com.ycy.aiapplication.service.RecordService;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -24,8 +24,12 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
 
-import java.util.*;
-
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Date;
+import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 
 @Slf4j
 @Service
@@ -36,66 +40,49 @@ public class RecordServiceImpl implements RecordService {
 
     private final StringRedisTemplate stringRedisTemplate;
 
-
-
-    /**
-     * 模糊查询
-     * @param requestParam 搜索框当中的输入
-     * @return 所有符合名称的记录的id和名字，之后点击对应的记录我们再去查询，提升性能,减轻前端压力
-     * 这里查询缓存，性能更好
-     */
     @Override
-    public List<FuzzySearchInterviewRecordRespDTO> fuzzySearchInterviewRecordName( FuzzySearchInterviewNameReqDTO requestParam) {
-        String searchInput=requestParam.getName();
+    public List<FuzzySearchInterviewRecordRespDTO> fuzzySearchInterviewRecordName(FuzzySearchInterviewNameReqDTO requestParam) {
+        String searchInput = requestParam.getName();
         if (StrUtil.isBlank(searchInput)) {
-            throw new ClientException("查询输入不能为空！");
+            throw new ClientException("鏌ヨ杈撳叆涓嶈兘涓虹┖锛?");
         }
         String keyWord = searchInput.toLowerCase();
-        //查询对应的ZSet
         String zSetKey = String.format(AgentRedisConstant.INTERVIEW_RECORD_ID_WITH_NAME_CACHE_KEY, UserContext.getId());
         Set<String> stringSet = stringRedisTemplate.opsForZSet().reverseRange(zSetKey, 0, 99);
-        ArrayList<FuzzySearchInterviewRecordRespDTO> respList = new ArrayList<>();
-        if(CollectionUtil.isEmpty(stringSet)){
-            log.info("当前用户没有{}对应记录",searchInput);
+        List<FuzzySearchInterviewRecordRespDTO> respList = new ArrayList<>();
+        if (CollectionUtil.isEmpty(stringSet)) {
+            log.info("褰撳墠鐢ㄦ埛娌℃湁{}瀵瑰簲璁板綍", searchInput);
             return Collections.emptyList();
         }
-        for(String cacheValue:stringSet){
+        for (String cacheValue : stringSet) {
             RecordCacheInfo recordCacheInfo = parseRecordCache(cacheValue, null);
-            if(Objects.isNull(recordCacheInfo)){
+            if (Objects.isNull(recordCacheInfo)) {
                 continue;
             }
             String name = recordCacheInfo.getName();
-            if(StrUtil.isNotEmpty(name)&&name.toLowerCase().contains(keyWord)){
+            if (StrUtil.isNotEmpty(name) && name.toLowerCase().contains(keyWord)) {
                 respList.add(FuzzySearchInterviewRecordRespDTO.builder()
-                                .id(String.valueOf(recordCacheInfo.getId()))
-                                .recordName(name)
-                                .build());
-
-
+                        .id(String.valueOf(recordCacheInfo.getId()))
+                        .recordName(name)
+                        .build());
             }
-
         }
-        log.info("记录返回成功！");
+        log.info("璁板綍杩斿洖鎴愬姛");
         return respList;
     }
 
-
-    /**
-     * 左侧显示用户前100条记录在左侧已经很多了，后续改造为分页查询
-     */
     @Override
     public List<SearchInterviewNameAndIdRespDTO> searchInterviewNameAndId() {
-        Long userId= UserContext.getId();
+        Long userId = UserContext.getId();
         String cacheKey = String.format(AgentRedisConstant.INTERVIEW_RECORD_ID_WITH_NAME_CACHE_KEY, userId);
-        Set<ZSetOperations.TypedTuple<String>> records = stringRedisTemplate
-                .opsForZSet()
+        Set<ZSetOperations.TypedTuple<String>> records = stringRedisTemplate.opsForZSet()
                 .reverseRangeWithScores(cacheKey, 0, 99);
 
         if (CollectionUtil.isEmpty(records)) {
-            log.info("当前用户{}记录为空",userId);
+            log.info("褰撳墠鐢ㄦ埛{}璁板綍涓虹┖", userId);
             return Collections.emptyList();
         }
-        log.info("查询记录成功，立即返回结果");
+        log.info("鏌ヨ璁板綍鎴愬姛锛岀珛鍗宠繑鍥炵粨鏋?");
         return records.stream()
                 .map(record -> {
                     RecordCacheInfo recordCacheInfo = parseRecordCache(record.getValue(), record.getScore());
@@ -108,35 +95,36 @@ public class RecordServiceImpl implements RecordService {
                             .interviewPoint(recordCacheInfo.getInterviewPoint())
                             .createTime(recordCacheInfo.getCreateTime())
                             .build();
-
                 })
-                .filter(Objects::nonNull)//防止数据污染
+                .filter(Objects::nonNull)
                 .toList();
-
     }
 
     @Override
     public InterviewRecordRespDTO searchInterviewRecordById(String id) {
-        if(StrUtil.isBlank(id)){
-            throw new ClientException("查询id不能为空！请检查");
+        Long recordId = parseRecordId(id);
+        Long userId = getCurrentUserId();
+        InterviewRecordDO interviewRecordDO = findInterviewRecordByIdAndUserId(recordId, userId);
+        if (ObjectUtil.isNull(interviewRecordDO)) {
+            removeInterviewRecordCache(recordId, userId);
+            throw new ClientException("当前记录不存在");
         }
-        long recordId ;
-        try{
-            recordId=Long.parseLong(id);
-        }catch (NumberFormatException e){
-            throw new ClientException("记录id格式错误,必须为数字id");
-        }
-        LambdaQueryWrapper<InterviewRecordDO> lambdaQueryWrapper = new LambdaQueryWrapper<InterviewRecordDO>()
-                .eq(InterviewRecordDO::getId, recordId)
-                .eq(InterviewRecordDO::getUserId, UserContext.getId());//防止查询到不属于当前用户的记录导致数据泄露
-
-        InterviewRecordDO interviewRecordDO = interviewRecordDOMapper.selectOne(lambdaQueryWrapper);
-        if(ObjectUtil.isNull(interviewRecordDO)){
-            throw new ClientException("记录已经不存在/无访问权限");
-        }
-        log.info("查询到对应记录，记录名称：{}，记录id：{}",interviewRecordDO.getRecordName(),interviewRecordDO.getId());
+        log.info("当前记录检索成功，名称：{}，对应id：{}", interviewRecordDO.getRecordName(), interviewRecordDO.getId());
         return toInterviewRecordRespDTO(interviewRecordDO);
+    }
 
+    @Override
+    public void deleteInterviewRecord(String id) {
+        Long recordId = parseRecordId(id);
+        Long userId = getCurrentUserId();
+        InterviewRecordDO interviewRecordDO = findInterviewRecordByIdAndUserId(recordId, userId);
+        if (ObjectUtil.isNull(interviewRecordDO)) {
+            removeInterviewRecordCache(recordId, userId);
+            throw new ClientException("当前记录不存在");
+        }
+        interviewRecordDOMapper.deleteById(recordId);
+        removeInterviewRecordCache(recordId, userId);
+        log.info("记录删除成功，userId:{}, recordId:{}", userId, recordId);
     }
 
     private InterviewRecordRespDTO toInterviewRecordRespDTO(InterviewRecordDO interviewRecordDO) {
@@ -158,6 +146,49 @@ public class RecordServiceImpl implements RecordService {
                 .deleted(interviewRecordDO.getDeleted())
                 .build();
     }
+
+    private Long parseRecordId(String id) {
+        if (StrUtil.isBlank(id)) {
+            throw new ClientException("id不能为空");
+        }
+        try {
+            return Long.parseLong(id);
+        } catch (NumberFormatException ex) {
+            throw new ClientException("id格式存在问题");
+        }
+    }
+
+    private Long getCurrentUserId() {
+        Long userId = UserContext.getId();
+        if (ObjectUtil.isNull(userId)) {
+            throw new ClientException("对应用户id为空，用户不存在");
+        }
+        return userId;
+    }
+
+    private InterviewRecordDO findInterviewRecordByIdAndUserId(Long recordId, Long userId) {
+        LambdaQueryWrapper<InterviewRecordDO> lambdaQueryWrapper = new LambdaQueryWrapper<InterviewRecordDO>()
+                .eq(InterviewRecordDO::getId, recordId)
+                .eq(InterviewRecordDO::getUserId, userId);
+        return interviewRecordDOMapper.selectOne(lambdaQueryWrapper);
+    }
+
+    private void removeInterviewRecordCache(Long recordId, Long userId) {
+        String cacheKey = String.format(AgentRedisConstant.INTERVIEW_RECORD_ID_WITH_NAME_CACHE_KEY, userId);
+        Set<String> cacheValues = stringRedisTemplate.opsForZSet().range(cacheKey, 0, -1);
+        if (CollectionUtil.isEmpty(cacheValues)) {
+            return;
+        }
+        String cachePrefix = recordId + "|";
+        List<String> staleCacheValues = cacheValues.stream()
+                .filter(each -> StrUtil.isNotBlank(each) && each.startsWith(cachePrefix))
+                .toList();
+        if (CollectionUtil.isEmpty(staleCacheValues)) {
+            return;
+        }
+        stringRedisTemplate.opsForZSet().remove(cacheKey, staleCacheValues.toArray(new String[0]));
+    }
+
     private RecordCacheInfo parseRecordCache(String cacheValue, Double score) {
         if (StrUtil.isBlank(cacheValue)) {
             return null;
@@ -185,7 +216,7 @@ public class RecordServiceImpl implements RecordService {
                     .createTime(createTime)
                     .build();
         } catch (NumberFormatException ex) {
-            log.warn("redis缓存记录解析失败，cacheValue:{}", cacheValue);
+            log.warn("redis格式问题cacheValue:{}", cacheValue);
             return null;
         }
     }
@@ -204,4 +235,3 @@ public class RecordServiceImpl implements RecordService {
         private Date createTime;
     }
 }
-
