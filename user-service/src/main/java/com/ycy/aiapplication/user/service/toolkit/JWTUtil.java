@@ -1,6 +1,5 @@
 package com.ycy.aiapplication.user.service.toolkit;
 
-
 import com.auth0.jwt.JWT;
 import com.auth0.jwt.JWTVerifier;
 import com.auth0.jwt.algorithms.Algorithm;
@@ -11,57 +10,65 @@ import org.springframework.stereotype.Component;
 
 import java.util.Date;
 
-
 /**
  * JWT令牌工具类
  */
 @Component
 public class JWTUtil {
-    /**
-     * 配置文件密钥
-     */
+
+    public static final String CLAIM_USER_ID = "userId";
+    public static final String CLAIM_ACCOUNT_ID = "accountId";
+
     @Value("${app.jwt.secret:AiApplicationSecretKeyForHarmonyOsApp2026}")
-    private String SECRET;
+    private String secret;
 
-    /**
-     * jwt过期时间
-     */
-    @Value("${app.jwt.expiration:86400000}")
-    private Long EXPIRATION_TIME;
+    @Value("${app.jwt.expiration:36000000}")
+    private Long expirationTime;
 
-    /**
-     * 生成JWT Token
-     * @param accountId 账户id
-     * @return 返回JWT Token
-     */
-    public String generateToken(String accountId){
+    public String generateToken(Long userId, String accountId, String jti) {
         Date now = new Date();
-        Date expriyDate = new Date(now.getTime() + EXPIRATION_TIME);
-
+        Date expiryDate = new Date(now.getTime() + expirationTime);
         return JWT.create()
-                .withSubject(accountId)
-                .withIssuedAt(now)//签发时间
-                .withExpiresAt(expriyDate)//过期时间
-                .sign(Algorithm.HMAC256(SECRET));//使用的算法和签名
+                .withSubject(String.valueOf(userId))
+                .withJWTId(jti)
+                .withClaim(CLAIM_USER_ID, userId)
+                .withClaim(CLAIM_ACCOUNT_ID, accountId)
+                .withIssuedAt(now)
+                .withExpiresAt(expiryDate)
+                .sign(Algorithm.HMAC256(secret));
     }
 
-    /**
-     *验证JWT token 并返回解码后的JWT对象
-     * @param token JWT字符串
-     * @return 解码后的对象
-     * @throws JWTVerificationException 验证失败抛出异常
-     */
-    public DecodedJWT verifyToken(String token)throws JWTVerificationException{
-        Algorithm algorithm = Algorithm.HMAC256(SECRET);
-        JWTVerifier verifier = JWT.require(algorithm).build();//创建验证器
+    public DecodedJWT verifyToken(String token) throws JWTVerificationException {
+        Algorithm algorithm = Algorithm.HMAC256(secret);
+        JWTVerifier verifier = JWT.require(algorithm).build();
         return verifier.verify(token);
     }
 
-    public String getAccountIdFromToken(String token){
-        DecodedJWT decodedJWT = verifyToken(token);
-        return decodedJWT.getSubject();
+    public Long getUserId(DecodedJWT decodedJWT) {
+        Long userId = decodedJWT.getClaim(CLAIM_USER_ID).asLong();
+        if (userId != null) {
+            return userId;
+        }
+        return Long.valueOf(decodedJWT.getSubject());
     }
 
+    public Long getUserIdFromToken(String token) {
+        return getUserId(verifyToken(token));
+    }
 
+    public String getAccountId(DecodedJWT decodedJWT) {
+        return decodedJWT.getClaim(CLAIM_ACCOUNT_ID).asString();
+    }
 
+    public String getAccountIdFromToken(String token) {
+        return getAccountId(verifyToken(token));
+    }
+
+    public String getJti(DecodedJWT decodedJWT) {
+        return decodedJWT.getId();
+    }
+
+    public Long getExpirationTime() {
+        return expirationTime;
+    }
 }

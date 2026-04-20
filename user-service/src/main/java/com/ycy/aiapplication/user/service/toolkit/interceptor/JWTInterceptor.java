@@ -1,78 +1,96 @@
 package com.ycy.aiapplication.user.service.toolkit.interceptor;
 
-import cn.hutool.core.bean.BeanUtil;
-import cn.hutool.core.util.ObjectUtil;
+import cn.hutool.core.util.StrUtil;
 import com.auth0.jwt.exceptions.JWTVerificationException;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.auth0.jwt.interfaces.DecodedJWT;
 import com.ycy.aiapplication.framework.context.UserContext;
 import com.ycy.aiapplication.framework.context.UserInfoDTO;
-import com.ycy.aiapplication.user.service.dao.entity.UserAccountDO;
-import com.ycy.aiapplication.user.service.dao.mapper.UserAccountDOMapper;
+import com.ycy.aiapplication.user.service.common.constant.UserServiceRedisConstant;
 import com.ycy.aiapplication.user.service.toolkit.JWTUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
+
+import java.io.IOException;
+import java.util.Date;
+import java.util.Objects;
 
 @Component
 @RequiredArgsConstructor
 public class JWTInterceptor implements HandlerInterceptor {
 
     private final JWTUtil jwtUtil;
-    private final UserAccountDOMapper userAccountDOMapper;
-
+    private final StringRedisTemplate stringRedisTemplate;
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
-        //放行预检请求
         if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
             return true;
         }
 
-
         String token = request.getHeader("Authorization");
-
-        // 2. 检查请求头格式是否正确 (Bearer <token>)
         if (token == null || !token.startsWith("Bearer ")) {
-            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            response.getWriter().write("Unauthorized: No valid token provided 没有提供token");
-            return false; // 拦截请求，不再向下执行
+            writeUnauthorized(response, "Unauthorized: No valid token provided");
+            return false;
         }
-        //提取JWT字符串
-        // 去掉 "Bearer " 前缀
+
         String jwt = token.substring(7);
+        try {
+            DecodedJWT decodedJWT = jwtUtil.verifyToken(jwt);
+            Long userId = jwtUtil.getUserId(decodedJWT);
+            String accountId = jwtUtil.getAccountId(decodedJWT);
+            String jti = jwtUtil.getJti(decodedJWT);
+            Date expiresAt = decodedJWT.getExpiresAt();
+            if (userId == null || StrUtil.isBlank(accountId) || StrUtil.isBlank(jti) || expiresAt == null || expiresAt.before(new Date())) {
+                writeUnauthorized(response, "Unauthorized: Invalid token");
+                return false;
+            }
 
-        try{
-            //验证JWT有效性
-            //校验签名、过期时间等
-            String accountId = jwtUtil.getAccountIdFromToken(jwt);
-            //验证成功，将用户id存储到当前ThreadLocal当中
-            LambdaQueryWrapper<UserAccountDO> queryWrapper = new LambdaQueryWrapper<UserAccountDO>()
-                    .eq(UserAccountDO::getAccountId, accountId);
-            UserAccountDO userAccountDO = userAccountDOMapper.selectOne(queryWrapper);
+            String loginCacheKey = String.format(UserServiceRedisConstant.LOGIN_CACHE_KEY, jti);
+            String loginCacheValue = stringRedisTemplate.opsForValue().get(loginCacheKey);
+            if (StrUtil.isBlank(loginCacheValue)) {
+                writeUnauthorized(response, "Unauthorized: Login status expired");
+                return false;
+            }
 
-            if(ObjectUtil.isNull(userAccountDO)) return false;
-            UserInfoDTO userInfoDTO = BeanUtil.toBean(userAccountDO, UserInfoDTO.class);
-            UserContext.setUser(userInfoDTO);
+            String[] cacheValues = loginCacheValue.split("\\|");
+            if (cacheValues.length != 2) {
+                writeUnauthorized(response, "Unauthorized: Invalid login cache");
+                return false;
+            }
 
-            request.setAttribute("currentAccountId",accountId);
+            Long cachedUserId = Long.valueOf(cacheValues[0]);
+            Integer permission = Integer.valueOf(cacheValues[1]);
+            if (!Objects.equals(userId, cachedUserId)) {
+                writeUnauthorized(response, "Unauthorized: Token mismatch");
+                return false;
+            }
 
+            UserContext.setUser(UserInfoDTO.builder()
+                    .id(userId)
+                    .accountId(accountId)
+                    .permission(permission)
+                    .jti(jti)
+                    .loginExpireTime(expiresAt.getTime())
+                    .build());
+            request.setAttribute("currentAccountId", accountId);
             return true;
-
-
-
-        }catch (JWTVerificationException e){
-            // 7. 验证失败（签名无效、过期等）
-            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            response.getWriter().write("Unauthorized: Invalid token");
-            return false; // 拦截请求
+        } catch (JWTVerificationException | IllegalArgumentException e) {
+            writeUnauthorized(response, "Unauthorized: Invalid token");
+            return false;
         }
-
     }
 
     @Override
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) {
         UserContext.removeUser();
+    }
+
+    private void writeUnauthorized(HttpServletResponse response, String message) throws IOException {
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        response.getWriter().write(message);
     }
 }

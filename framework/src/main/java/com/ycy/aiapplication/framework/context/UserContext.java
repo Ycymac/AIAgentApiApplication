@@ -2,6 +2,8 @@ package com.ycy.aiapplication.framework.context;
 
 
 
+import lombok.Setter;
+
 import java.util.Optional;
 
 /**
@@ -10,6 +12,8 @@ import java.util.Optional;
 
 public final class UserContext {
     private static final ThreadLocal<UserInfoDTO>USER_THREAD_LOCAL=new ThreadLocal<>();
+    @Setter
+    private static volatile UserNickNameResolver userNickNameResolver;
 
     public static  void setUser(UserInfoDTO user){USER_THREAD_LOCAL.set(user);}
 
@@ -24,7 +28,20 @@ public final class UserContext {
 
     public static String getNickName(){
         UserInfoDTO userInfoDTO = USER_THREAD_LOCAL.get();
-        return Optional.ofNullable(userInfoDTO).map(UserInfoDTO::getNickName).orElse(null);
+        if (userInfoDTO == null || userNickNameResolver == null) {
+            return null;
+        }
+        return userNickNameResolver.getNickName(userInfoDTO.getAccountId());
+    }
+
+    public static String getJti() {
+        UserInfoDTO userInfoDTO = USER_THREAD_LOCAL.get();
+        return Optional.ofNullable(userInfoDTO).map(UserInfoDTO::getJti).orElse(null);
+    }
+
+    public static Long getLoginExpireTime() {
+        UserInfoDTO userInfoDTO = USER_THREAD_LOCAL.get();
+        return Optional.ofNullable(userInfoDTO).map(UserInfoDTO::getLoginExpireTime).orElse(null);
     }
 
     public static boolean isManager(){

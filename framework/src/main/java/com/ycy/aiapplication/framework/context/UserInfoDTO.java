@@ -18,8 +18,10 @@ public class UserInfoDTO {
 
     private String accountId;
 
-    private String nickName;
-
     private Integer permission;
+
+    private String jti;
+
+    private Long loginExpireTime;
 
 }

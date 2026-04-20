@@ -79,10 +79,10 @@ public class RecordServiceImpl implements RecordService {
                 .reverseRangeWithScores(cacheKey, 0, 99);
 
         if (CollectionUtil.isEmpty(records)) {
-            log.info("褰撳墠鐢ㄦ埛{}璁板綍涓虹┖", userId);
+            log.info("查询id为{}的用户记录为空，返回空列表", userId);
             return Collections.emptyList();
         }
-        log.info("鏌ヨ璁板綍鎴愬姛锛岀珛鍗宠繑鍥炵粨鏋?");
+        log.info("查询记录成功，立即返回结果");
         return records.stream()
                 .map(record -> {
                     RecordCacheInfo recordCacheInfo = parseRecordCache(record.getValue(), record.getScore());

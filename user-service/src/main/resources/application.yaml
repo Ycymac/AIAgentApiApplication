@@ -43,7 +43,7 @@ knife4j:
 app:
   jwt:
     secret: AiApplicationSecretKeyForHarmonyOsApp2026
-    expiration: 86400000
+    expiration: 36000000
 server:
   port: 10020
   address: 0.0.0.0
