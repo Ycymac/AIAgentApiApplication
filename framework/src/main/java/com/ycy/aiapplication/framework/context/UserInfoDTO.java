@@ -20,4 +20,6 @@ public class UserInfoDTO {
 
     private String nickName;
 
+    private Integer permission;
+
 }

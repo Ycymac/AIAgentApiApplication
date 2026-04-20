@@ -35,6 +35,10 @@ public class UserAccountDO {
      */
     private String nickName;
     /**
+     * 权限 0代表管理员，1代表用户
+     */
+    private Integer permission;
+    /**
      *当前账户是否被删除
      */
     @TableLogic

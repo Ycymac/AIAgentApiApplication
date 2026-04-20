@@ -33,4 +33,13 @@ public class LoginRespDTO {
     )
     private String nickName;
 
+    /**
+     * 权限 0代表管理员，1代表普通用户
+     */
+    @Schema(
+            description = "权限 0代表管理员，1代表普通用户",
+            example = "1"
+    )
+    private Integer permission;
+
 }

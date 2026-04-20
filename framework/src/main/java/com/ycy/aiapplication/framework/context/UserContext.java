@@ -27,5 +27,11 @@ public final class UserContext {
         return Optional.ofNullable(userInfoDTO).map(UserInfoDTO::getNickName).orElse(null);
     }
 
+    public static boolean isManager(){
+        UserInfoDTO userInfoDTO = USER_THREAD_LOCAL.get();
+        if(userInfoDTO==null)return false;
+        return userInfoDTO.getPermission()==0;
+    }
+
     public static void removeUser(){USER_THREAD_LOCAL.remove();}
 }

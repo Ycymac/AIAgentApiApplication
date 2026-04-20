@@ -48,6 +48,7 @@ public class UserServiceImpl implements UserService {
         LoginRespDTO loginRespDTO = LoginRespDTO.builder()
                 .accountId(accountId)
                 .nickName(userAccountDO.getNickName())
+                .permission(userAccountDO.getPermission())
                 .build();
         return Results.successWithToken(loginRespDTO,token);
 
