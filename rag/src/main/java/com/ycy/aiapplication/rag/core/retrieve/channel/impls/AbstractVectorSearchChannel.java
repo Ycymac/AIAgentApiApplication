@@ -3,33 +3,41 @@ package com.ycy.aiapplication.rag.core.retrieve.channel.impls;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import com.ycy.aiapplication.framework.convention.RetrievedChunk;
-import com.ycy.aiapplication.rag.core.retrieve.common.SearchContext;
+import com.ycy.aiapplication.knowledge.dao.mapper.KnowledgeChunkDOMapper;
+import com.ycy.aiapplication.rag.config.RAGRetrieveProperties;
 import com.ycy.aiapplication.rag.core.retrieve.channel.SearchChannel;
 import com.ycy.aiapplication.rag.core.retrieve.channel.SearchChannelResult;
 import com.ycy.aiapplication.rag.core.retrieve.channel.retriver.AbstractParallelRetriever;
 import com.ycy.aiapplication.rag.core.retrieve.channel.retriver.CollectionParallelRetriever;
+import com.ycy.aiapplication.rag.core.retrieve.common.SearchContext;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 
 /**
- * 向量检索通道抽象父类。
- * <p>
- * 整体职责：
- * 1. 统一封装基于 collection 的并行向量检索执行流程。
- * 2. 负责收集检索耗时、合并分块结果、回填“意图 -> chunk”映射。
- * 3. 将通道间通用逻辑沉淀到父类，具体子类只负责构造检索任务参数。
+ * Base implementation for vector-backed retrieval channels.
  */
+@Slf4j
 public abstract class AbstractVectorSearchChannel implements SearchChannel {
 
     public static final String METADATA_INTENT_CHUNKS = "intentChunks";
 
     private final CollectionParallelRetriever collectionParallelRetriever;
+    private final RAGRetrieveProperties retrieveProperties;
+    private final KnowledgeChunkDOMapper knowledgeChunkDOMapper;
 
-    protected AbstractVectorSearchChannel(CollectionParallelRetriever collectionParallelRetriever) {
+    protected AbstractVectorSearchChannel(CollectionParallelRetriever collectionParallelRetriever,
+                                          RAGRetrieveProperties retrieveProperties,
+                                          KnowledgeChunkDOMapper knowledgeChunkDOMapper) {
         this.collectionParallelRetriever = collectionParallelRetriever;
+        this.retrieveProperties = retrieveProperties;
+        this.knowledgeChunkDOMapper = knowledgeChunkDOMapper;
     }
 
     /**
@@ -38,6 +46,7 @@ public abstract class AbstractVectorSearchChannel implements SearchChannel {
      * @param context 检索上下文，包含子问题、意图识别结果以及基准 topK 等信息。
      * @return 当前通道的统一检索结果对象，metadata 中会额外携带意图分块映射。
      */
+
     @Override
     public SearchChannelResult search(SearchContext context) {
         long start = System.currentTimeMillis();
@@ -57,12 +66,101 @@ public abstract class AbstractVectorSearchChannel implements SearchChannel {
             // 每个任务内部会对多个 collection 做并行检索，适合意图节点命中多个知识库的场景。
             AbstractParallelRetriever.ParallelRetrievalResult<String> result =
                     collectionParallelRetriever.executeParallelRetrievalWithTargets(task.question(), task.collections(), task.topK());
+            //按照模式进行文本块清洗
+            result = filterInvisibleChunks(result);
+
             mergedChunks.addAll(result.allChunks());
-            // 将 collection 维度的结果重新映射回意图维度，避免上层感知 collection 细节。
+            // 将 collection 维度的结果重新映射回意图维度，便于上层感知 collection 细节。
             mergeIntentChunks(intentChunks, result.targetChunks(), task.collectionIntentKeys());
         }
 
         return buildResult(mergedChunks, intentChunks, System.currentTimeMillis() - start);
+    }
+
+    /**
+     * 严格模式下基于 MySQL 执行分块可见性校验。
+     *<p>
+     * 执行思路：
+     * 1. Milvus 仅负责召回候选分块，不保证数据实时一致性。
+     *2. 当开启严格过滤时，以 MySQL 为唯一可信源，校验分块、文档、知识库的启用与删除状态。
+     * 3. 若数据库查询失败或无可见分块，则视为数据库不可用，清空当前检索结果以避免脏数据进入后续流程。
+     *
+     * @param result 并行检索器返回的原始候选结果。
+     * @return 经过可见性过滤后的检索结果；若校验失败则返回空结果。
+     */
+    private AbstractParallelRetriever.ParallelRetrievalResult<String> filterInvisibleChunks(
+            AbstractParallelRetriever.ParallelRetrievalResult<String> result) {
+        // 未开启严格模式或结果为空时直接放行，避免不必要的数据库开销。
+        if (!retrieveProperties.getStrictDBFilterUse() || result == null || CollUtil.isEmpty(result.allChunks())) {
+            return result;
+        }
+
+        try {
+            // 提取所有候选分块的 ID 并去重，准备批量查询。
+            List<String> chunkIds = result.allChunks().stream()
+                    .filter(Objects::nonNull)
+                    .map(RetrievedChunk::getId)
+                    .filter(StrUtil::isNotBlank)
+                    .distinct()
+                    .toList();
+            if (CollUtil.isEmpty(chunkIds)) {
+                return emptyRetrievalResult(result);
+            }
+            // 调用 Mapper 批量查询在 MySQL 中仍处于“可见”状态的分块 ID。
+            Set<String> visibleChunkIds = knowledgeChunkDOMapper.findVisibleChunkIds(chunkIds);
+            if (CollUtil.isEmpty(visibleChunkIds)) {
+                return emptyRetrievalResult(result);
+            }
+            // 根据可见 ID 集合过滤全量分块列表以及按 target 拆分的明细映射。
+            List<RetrievedChunk> filteredAllChunks = filterChunksByVisibleIds(result.allChunks(), visibleChunkIds);
+            Map<String, List<RetrievedChunk>> filteredTargetChunks = new LinkedHashMap<>();
+            result.targetChunks().forEach((target, chunks) ->
+                    filteredTargetChunks.put(target, filterChunksByVisibleIds(chunks, visibleChunkIds)));
+
+            return new AbstractParallelRetriever.ParallelRetrievalResult<>(
+                    filteredAllChunks,
+                    filteredTargetChunks,
+                    result.successCount(),
+                    result.failureCount()
+            );
+        } catch (Exception ex) {
+            // 数据库校验异常时采取保守策略：记录错误并返回空结果，防止不一致数据污染 RAG 上下文。
+            log.error("严格模式下的数据库分块过滤失败，返回空检索结果。", ex);
+            return emptyRetrievalResult(result);
+        }
+    }
+
+    /**
+     * 根据可见分块 ID 集合过滤分块列表。
+     *
+     * @param chunks 待过滤的分块列表。
+     * @param visibleChunkIds 在 MySQL 中校验通过的分块 ID 集合。
+     * @return 过滤后保留的分块列表。
+     */
+    private List<RetrievedChunk> filterChunksByVisibleIds(List<RetrievedChunk> chunks, Set<String> visibleChunkIds) {
+        if (CollUtil.isEmpty(chunks) || CollUtil.isEmpty(visibleChunkIds)) {
+            return List.of();
+        }
+        return chunks.stream()
+                .filter(Objects::nonNull)
+                .filter(chunk -> visibleChunkIds.contains(chunk.getId()))
+                .toList();
+    }
+
+    /**
+     * 构造空并行检索结果，用于校验失败或异常时的兜底返回。
+     *
+     * @param source 原始检索结果，用于继承成功/失败统计信息。
+     * @return 分块列表清空检索结果对象。
+     */
+    private AbstractParallelRetriever.ParallelRetrievalResult<String> emptyRetrievalResult(
+            AbstractParallelRetriever.ParallelRetrievalResult<String> source) {
+        return new AbstractParallelRetriever.ParallelRetrievalResult<>(
+                List.of(),
+                Map.of(),
+                source == null ? 0 : source.successCount(),
+                source == null ? 0 : source.failureCount()
+        );
     }
 
     /**
@@ -126,6 +224,7 @@ public abstract class AbstractVectorSearchChannel implements SearchChannel {
      * @param context 检索上下文。
      * @return 当前通道需要执行的检索任务列表。
      */
+
     protected abstract List<SearchTask> buildTasks(SearchContext context);
 
     /**

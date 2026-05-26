@@ -5,6 +5,7 @@ import com.ycy.aiapplication.framework.idempotent.annotations.IdempotentSubmit;
 import com.ycy.aiapplication.framework.web.Result;
 import com.ycy.aiapplication.framework.web.Results;
 
+import com.ycy.aiapplication.infrastructure.ai.config.AIModelProperties;
 import com.ycy.aiapplication.knowledge.control.request.base.KnowledgeBaseCreateRequest;
 import com.ycy.aiapplication.knowledge.control.request.base.KnowledgeBasePageRequest;
 import com.ycy.aiapplication.knowledge.control.request.base.KnowledgeBaseUpdateRequest;
@@ -23,6 +24,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Map;
+
 /**
  * 知识库控制层。
  */
@@ -34,6 +37,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class KnowledgeBaseController {
 
     private final KnowledgeBaseService knowledgeBaseService;
+    private final AIModelProperties aiModelProperties;
 
     @Operation(summary = "创建知识库")
     @PostMapping("/knowledge-base")
@@ -78,5 +82,12 @@ public class KnowledgeBaseController {
     @IdempotentSubmit(message = "尝试次数过多，请稍后再试")
     public Result<IPage<KnowledgeBaseVO>> pageQuery(KnowledgeBasePageRequest requestParam) {
         return Results.success(knowledgeBaseService.pageQuery(requestParam));
+    }
+
+    @Operation(summary = "查询可选择的向量化模型")
+    @GetMapping("/embeddingModel")
+    @IdempotentSubmit(message = "尝试次数过多，请稍后再试")
+    public Result<Map<String,String>> embeddingModelConfigGet(){
+        return Results.success(aiModelProperties.getEmbedding().getModels());
     }
 }

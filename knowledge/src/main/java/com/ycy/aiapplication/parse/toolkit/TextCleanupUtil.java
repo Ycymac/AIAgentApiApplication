@@ -15,7 +15,7 @@ public final class TextCleanupUtil {
     /**
      * 清理文本内容
      * 执行以下清理操作：
-     * 1.移除BOMN标记（\uFEFF）
+     * 1.移除BOM标记（\uFEFF）
      *  什么是BOM：
      *      Byte Order  Mark:文本开头的特殊字节，用于识别文件编码格式&字节序（文件开头的不可见字节）
      * 2.移除行尾多余的空格和制表符

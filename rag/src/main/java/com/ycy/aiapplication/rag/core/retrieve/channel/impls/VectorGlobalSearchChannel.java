@@ -2,6 +2,7 @@ package com.ycy.aiapplication.rag.core.retrieve.channel.impls;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
+import com.ycy.aiapplication.knowledge.dao.mapper.KnowledgeChunkDOMapper;
 import com.ycy.aiapplication.rag.config.RAGRetrieveProperties;
 import com.ycy.aiapplication.rag.core.intent.common.IntentNode;
 import com.ycy.aiapplication.rag.core.intent.common.SubQuestionIntent;
@@ -34,8 +35,9 @@ public class VectorGlobalSearchChannel extends AbstractVectorSearchChannel {
 
     public VectorGlobalSearchChannel(CollectionParallelRetriever collectionParallelRetriever,
                                      RAGRetrieveProperties retrieveProperties,
-                                     IntentNodeRegistry intentNodeRegistry) {
-        super(collectionParallelRetriever);
+                                     IntentNodeRegistry intentNodeRegistry,
+                                     KnowledgeChunkDOMapper knowledgeChunkDOMapper) {
+        super(collectionParallelRetriever, retrieveProperties, knowledgeChunkDOMapper);
         this.retrieveProperties = retrieveProperties;
         this.intentNodeRegistry = intentNodeRegistry;
     }

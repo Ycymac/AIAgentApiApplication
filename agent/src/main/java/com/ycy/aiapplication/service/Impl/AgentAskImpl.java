@@ -105,13 +105,24 @@ public class AgentAskImpl implements AgentAsk {
 
     private final StringRedisTemplate stringRedisTemplate;
 
+    /**
+     * 生成面试题
+     * 基于候选人简历信息，调用大模型生成15道结构化面试题目
+     *
+     * @param requestParam 包含简历ID的请求参数
+     * @return 包含15道面试题的响应对象
+     */
     @Override
     public InterviewQuestionAskRespDTO giveInterviewQuestions(InterviewQuestionAskReqDTO requestParam) {
+        // 步骤1：校验请求参数非空
         if (ObjectUtil.isNull(requestParam)) {
             throw new RemoteException("用户参数部分未填写，请检查");
         }
 
+        // 步骤2：根据简历ID查询候选人完整信息
         IntervieweeForm form = getIntervieweeFormById(requestParam.getFormId());
+        
+        // 步骤3：校验简历关键信息完整性（姓名、求职意向、技能、教育经历、项目经历）
         if (StrUtil.isEmpty(form.getCandidateName())
                 || StrUtil.isEmpty(form.getJobIntention())
                 || CollectionUtil.isEmpty(form.getProfessionalSkills())
@@ -120,7 +131,10 @@ public class AgentAskImpl implements AgentAsk {
             throw new RemoteException("用户参数部分未填写，请检查");
         }
 
+        // 步骤4：构建简历描述文本，作为大模型的输入上下文
         String description = buildFormDescription(form);
+        
+        // 步骤5：初始化大模型客户端并构建消息
         Generation generation = new Generation();
         Message systemMsg = Message.builder()
                 .role(Role.ASSISTANT.getValue())
@@ -130,6 +144,8 @@ public class AgentAskImpl implements AgentAsk {
                 .role(Role.USER.getValue())
                 .content(description + AIPromptConstant.QUESTION_ASK)
                 .build();
+        
+        // 步骤6：配置大模型调用参数（指定模型、消息列表、输出格式）
         GenerationParam param = GenerationParam.builder()
                 .apiKey(apiKey)
                 .model(AIModelEnum.QUESTION_AI_MODEL.getModel())
@@ -138,22 +154,32 @@ public class AgentAskImpl implements AgentAsk {
                 .build();
 
         try {
+            // 步骤7：调用大模型生成面试题
             GenerationResult result = generation.call(param);
             String json = result.getOutput().getChoices().get(0).getMessage().getContent();
             log.info("消息内容: {}", json);
+            
+            // 步骤8：解析JSON字符串为面试题列表
             List<InterviewQuestion> questions = JSON.parseArray(json, InterviewQuestion.class);
+            
+            // 步骤9：校验题目数量必须为15道
             if (questions.size() != 15) {
                 throw new RuntimeException("题目数量不正确");
             }
+            
+            // 步骤10：校验每道题的难度等级必须在0-2范围内
             for (InterviewQuestion each : questions) {
                 if (each.getLevel() < 0 || each.getLevel() > 2) {
                     throw new RuntimeException("非法 level 值");
                 }
             }
+            
+            // 步骤11：返回生成的面试题列表
             return InterviewQuestionAskRespDTO.builder()
                     .questions(questions)
                     .build();
         } catch (Exception ex) {
+            // 步骤12：异常处理与日志记录
             if (ex instanceof NoApiKeyException) {
                 log.error("缺少 apiKey: {}", ex.getMessage());
             } else if (ex instanceof ApiException) {
@@ -167,16 +193,37 @@ public class AgentAskImpl implements AgentAsk {
         }
     }
 
+    /**
+     * 单题回答评估入口
+     * 对单个问题的回答进行评分和评语生成
+     *
+     * @param requestParam 包含问题和回答的请求对象
+     * @return 评估结果（包含分数和评语）
+     */
     @Override
     public AnswerEvaluationRespDTO singleQuestionAnswerEvaluation(QuestionWithAnswer requestParam) {
         return evaluateSingleQuestionWithStructuredFlow(requestParam);
     }
 
+    /**
+     * 批量异步回答评估入口
+     * 并行评估多个问题的回答，提升整体处理效率
+     *
+     * @param requestParams 包含多个问题与回答的列表
+     * @return 评估结果列表（按题目编号排序）
+     */
     @Override
     public List<AnswerEvaluationRespDTO> answersEvaluationByAsync(List<QuestionWithAnswer> requestParams) {
         return evaluateAnswersWithInvokeAll(requestParams);
     }
 
+    /**
+     * 生成面试报告并记录名称
+     * 基于所有题目的评估结果，生成综合面试报告和记录名称，并持久化到数据库
+     *
+     * @param requestParam 包含评估结果列表和简历ID的请求对象
+     * @return 包含报告、记录名称和生成时间的响应对象
+     */
     @Override
     public ReportGenerationRespDTO generateInterviewReportAndRecordName(ReportGenerationReqDTO requestParam) {
         return generateInterviewReportWithFutureTasks(requestParam);
@@ -240,13 +287,18 @@ public class AgentAskImpl implements AgentAsk {
     }
 
     /**
-     * 批量评分
-     * 修改点： 批量评分改为 invokeAll：
+     * 批量评估
+     * 使用 invokeAll 提交所有评估任务，确保提交与收集语义稳定
+     * 修改点：
      * 1. 提交与收集语义更稳定；
      * 2. 不再出现 CompletableFuture 嵌套异常包装；
      * 3. 单题失败时直接落到兜底，不会导致整批 join 失败。
+     *
+     * @param requestParams 问题与回答列表
+     * @return 评估结果列表（按题目编号排序）
      */
     private List<AnswerEvaluationRespDTO> evaluateAnswersWithInvokeAll(List<QuestionWithAnswer> requestParams) {
+        // 步骤1：校验请求参数
         if (requestParams == null) {
             throw new ClientException("评估参数不足，请检查");
         }
@@ -258,41 +310,57 @@ public class AgentAskImpl implements AgentAsk {
         log.info("开始批量评估 total={} parallelism={} queueCapacity={}",
                 requestParams.size(), AI_TASK_PARALLELISM, AI_TASK_QUEUE_CAPACITY);
 
+        // 步骤2：将每个问题的评估任务封装为 Callable 对象
         List<Callable<AnswerEvaluationRespDTO>> tasks = requestParams.stream()
                 .map(each -> (Callable<AnswerEvaluationRespDTO>) () -> evaluateQuestionSafely(each))
                 .toList();
 
+        // 步骤3：使用 invokeAll 批量提交任务并等待所有任务完成
         List<Future<AnswerEvaluationRespDTO>> futures;
         try {
             futures = aiTaskExecutor.invokeAll(tasks);
         } catch (InterruptedException ex) {
+            // 步骤4：处理任务提交被中断的异常情况
             Thread.currentThread().interrupt();
             log.error("批量评估任务提交被中断 total={}", requestParams.size(), ex);
             return buildInterruptedBatchFallback(requestParams);
         }
 
+        // 步骤5：逐个获取任务执行结果
         List<AnswerEvaluationRespDTO> resultList = new ArrayList<>(requestParams.size());
         for (int i = 0; i < futures.size(); i++) {
             QuestionWithAnswer requestParam = requestParams.get(i);
             try {
                 resultList.add(futures.get(i).get());
             } catch (InterruptedException ex) {
+                // 步骤6：处理结果获取被中断的情况，使用兜底评分
                 Thread.currentThread().interrupt();
                 log.error("批量评估结果获取被中断 questionNum={}", requestParam.getQuestion().getNum(), ex);
                 resultList.add(buildModelFailureFallback(requestParam, "评估任务被中断，已按保守策略完成评分。"));
             } catch (ExecutionException ex) {
+                // 步骤7：处理任务执行异常的情况，使用兜底评分
                 log.error("批量评估结果获取异常 questionNum={}", requestParam.getQuestion().getNum(), ex);
                 resultList.add(buildModelFailureFallback(requestParam, "评估任务执行异常，已按保守策略完成评分。"));
             }
         }
 
+        // 步骤8：按题目编号排序结果
         resultList.sort(Comparator.comparingInt(each -> each.getQuestion().getNum()));
+        
+        // 步骤9：统计兜底评分数量并记录日志
         long fallbackCount = resultList.stream().filter(this::isFallbackEvaluation).count();
-        log.info("批量评估完成 total={} fallbackCount={} costMs={}",
+        log.info("批量评估完成 整体数量：{} 降级数量：{} 花费时间（毫秒）：{}",
                 resultList.size(), fallbackCount, System.currentTimeMillis() - startTime);
         return resultList;
     }
 
+    /**
+     * 安全地评估单个问题
+     * 捕获所有未预期异常，确保单题失败不影响整体流程
+     *
+     * @param requestParam 问题与回答
+     * @return 评估结果（失败时返回兜底评分）
+     */
     private AnswerEvaluationRespDTO evaluateQuestionSafely(QuestionWithAnswer requestParam) {
         try {
             return evaluateSingleQuestionWithStructuredFlow(requestParam);
@@ -323,21 +391,35 @@ public class AgentAskImpl implements AgentAsk {
     }
 
     /**
-     * 判断当前用户回答是否过短、且意图为“不会”等类似词句
+     * 判断当前用户回答是否过短、且意图为"不会"等类似词句
+     * 用于快速识别无效回答，触发规则兜底策略，避免调用大模型造成资源浪费
      *
-     * @param answer 用户回答
+     * @param answer 用户回答文本
+     * @return true-需要触发规则兜底（回答过短或明确表示不会）；false-可以正常调用AI评估
      */
     private boolean shouldUseRuleBasedFallback(String answer) {
+        // 步骤1：去除所有空白字符（空格、换行、制表符等），得到纯文本内容
         String normalized = answer.replaceAll("\\s+", "");
+            
+        // 步骤2：检查回答长度是否低于最小阈值（MIN_ANSWER_LENGTH_FOR_AI=12）
+        // 如果回答过短，直接判定为无效回答，触发兜底策略
         if (normalized.length() < MIN_ANSWER_LENGTH_FOR_AI) {
             return true;
         }
+            
+        // 步骤3：检查回答是否完全匹配预定义的"无效回答关键词列表"
+        // 注意：这里是完全匹配，不是部分包含
+        // 例如："不知道" → true；"我不知道" → false（因为整个字符串不在列表中）
         return Arrays.asList("不知道", "不会", "不清楚", "无", "略", "跳过", "未作答", "没有")
                 .contains(normalized);
     }
 
     /**
-     * 将题目信息统一收敛为 JSON 文本，确保两个模型使用完全一致的输入语义。
+     * 将题目信息统一收敛为 JSON 文本，确保两个模型使用完全一致的输入语义
+     *
+     * @param question 面试问题对象
+     * @param answer 候选人回答文本
+     * @return JSON格式的评估输入字符串
      */
     private String buildEvaluationInput(InterviewQuestion question, String answer) {
         JSONObject jsonObject = new JSONObject();
@@ -349,22 +431,30 @@ public class AgentAskImpl implements AgentAsk {
 
     /**
      * 构建评估评价
+     * 调用评语模型生成情景化评语，支持重试机制
+     *
      * @param questionNum  问题编号
-     * @param evaluationInput  评估输入
-     * @return 大模型评语
+     * @param evaluationInput  评估输入（JSON格式）
+     * @return 大模型生成的评语，失败时返回兜底评语
      */
     private String requestEvaluationComment(int questionNum, String evaluationInput) {
         String model = AIModelEnum.EVALUATION_COMMENT_AI_MODEL.getModel();
+        
+        // 步骤1：最多尝试 MODEL_MAX_ATTEMPTS 次调用评语模型
         for (int attempt = 1; attempt <= MODEL_MAX_ATTEMPTS; attempt++) {
             try {
+                // 步骤2：调用模型生成评语
                 String rawContent = callModelForMessage(model,
                         evaluationInput + AIPromptConstant.ANSWER_COMMENT_GIVE,
                         questionNum, "evaluation-comment", attempt);
+                
+                // 步骤3：解析模型输出的JSON，提取评语文本
                 String comment = parseCommentPayload(rawContent);
                 log.info("评语生成成功 questionNum={} attempt={} comment={}",
                         questionNum, attempt, truncateForLog(comment));
                 return comment;
             } catch (Exception ex) {
+                // 步骤4：记录失败日志，判断是否为不可重试异常
                 log.warn("评语生成失败 questionNum={} model={} attempt={}",
                         questionNum, model, attempt, ex);
                 if (isNonRetryableModelException(ex)) {
@@ -372,29 +462,39 @@ public class AgentAskImpl implements AgentAsk {
                 }
             }
         }
+        
+        // 步骤5：所有尝试均失败，返回兜底评语
         return FALLBACK_COMMENT_PREFIX + "评语模型输出异常，建议结合原回答人工复核。";
     }
 
     /**
      * 带有简单重试机制的分数计算
-     * @param questionNum 问题比那好
-     * @param evaluationInput  评估输入
-     * @param answer 问题回答
-     * @return 评估分数
+     * 调用评分模型严格按照5维度评分，失败时使用启发式兜底策略
+     *
+     * @param questionNum 问题编号
+     * @param evaluationInput  评估输入（JSON格式）
+     * @param answer 问题回答文本
+     * @return 包含5个维度分数的结构化对象
      */
     private EvaluationScorePayload requestEvaluationScore(int questionNum, String evaluationInput, String answer) {
         String model = AIModelEnum.EVALUATION_SCORE_AI_MODEL.getModel();
+        
+        // 步骤1：最多尝试 MODEL_MAX_ATTEMPTS 次调用评分模型
         for (int attempt = 1; attempt <= MODEL_MAX_ATTEMPTS; attempt++) {
             try {
+                // 步骤2：调用模型生成分数
                 String rawContent = callModelForMessage(model,
                         evaluationInput + AIPromptConstant.ANSWER_SCORE_GIVE,
                         questionNum, "evaluation-score", attempt);
+                
+                // 步骤3：解析模型输出的JSON，提取5个维度分数
                 EvaluationScorePayload payload = parseScorePayload(rawContent);
                 log.info("打分生成成功 questionNum={} attempt={} accuracy={} completeness={} detail={} logic={} expression={}",
                         questionNum, attempt, payload.getAccuracy(), payload.getCompleteness(),
                         payload.getLevelOfDetail(), payload.getLogic(), payload.getExpressionAbility());
                 return payload;
             } catch (Exception ex) {
+                // 步骤4：记录失败日志，判断是否为不可重试异常
                 log.warn("打分生成失败 questionNum={} model={} attempt={}",
                         questionNum, model, attempt, ex);
                 if (isNonRetryableModelException(ex)) {
@@ -403,6 +503,7 @@ public class AgentAskImpl implements AgentAsk {
             }
         }
 
+        // 步骤5：所有尝试均失败，启用启发式兜底策略（基于回答长度和关键词命中）
         EvaluationScorePayload heuristicScore = buildHeuristicScorePayload(answer);
         log.warn("打分模型多次失败，启用启发式兜底 questionNum={} accuracy={} completeness={} detail={} logic={} expression={}",
                 questionNum,
@@ -416,26 +517,38 @@ public class AgentAskImpl implements AgentAsk {
 
     /**
      * 模型调用通用方法
-     * @param model 模型类型
+     * 封装大模型调用的标准流程，包括消息构建、参数配置、调用执行和日志记录
+     *
+     * @param model 模型类型（如评语模型、评分模型等）
      * @param userContent 用户消息内容
-     * @param questionNum 问题编号
-     * @param stage  当前阶段
-     * @param attempt 尝试次数
-     * @return 模型调用结果
-
+     * @param questionNum 问题编号（用于日志追踪，-1表示非单题评估场景）
+     * @param stage  当前阶段标识（如 "evaluation-comment"、"evaluation-score"）
+     * @param attempt 尝试次数（用于重试日志记录）
+     * @return 模型返回的原始文本内容
+     * @throws NoApiKeyException API密钥缺失异常
+     * @throws ApiException API调用失败异常
+     * @throws InputRequiredException 输入参数缺失异常
      */
     private String callModelForMessage(String model, String userContent, int questionNum, String stage, int attempt)
             throws NoApiKeyException, ApiException, InputRequiredException {
         long startTime = System.currentTimeMillis();
+        
+        // 步骤1：初始化大模型客户端
         Generation generation = new Generation();
+        
+        // 步骤2：构建系统消息（设定角色和行为准则）
         Message systemMsg = Message.builder()
                 .role(Role.SYSTEM.getValue())
                 .content(AIPromptConstant.SYSTEM_ROLE_CONTENT)
                 .build();
+        
+        // 步骤3：构建用户消息（包含具体的评估输入）
         Message userMsg = Message.builder()
                 .role(Role.USER.getValue())
                 .content(userContent)
                 .build();
+        
+        // 步骤4：配置调用参数（API密钥、模型类型、消息列表、输出格式）
         GenerationParam param = GenerationParam.builder()
                 .apiKey(apiKey)
                 .model(model)
@@ -445,7 +558,11 @@ public class AgentAskImpl implements AgentAsk {
 
         log.info("模型调用开始 questionNum={} stage={} model={} attempt={}",
                 questionNum, stage, model, attempt);
+        
+        // 步骤5：执行模型调用
         GenerationResult result = generation.call(param);
+        
+        // 步骤6：提取模型返回的文本内容
         String content = result.getOutput().getChoices().get(0).getMessage().getContent();
         log.info("模型调用完成 questionNum={} stage={} model={} attempt={} costMs={} raw={}",
                 questionNum, stage, model, attempt, System.currentTimeMillis() - startTime, truncateForLog(content));
@@ -454,26 +571,40 @@ public class AgentAskImpl implements AgentAsk {
 
 
     /**
-     *JSON字符串解析comment
-     * @param rawContent comment对应的json字符串
-     * @return  转换为字符串的评价
+     * JSON字符串解析comment
+     * 从模型输出的原始文本中提取并解析评语文本
+     *
+     * @param rawContent comment对应的json字符串（可能包含Markdown标记）
+     * @return  转换为字符串的评价文本
+     * @throws IllegalArgumentException 当comment字段缺失时抛出
      */
     private String parseCommentPayload(String rawContent) {
+        // 步骤1：从原始文本中提取第一个完整的JSON对象
         JSONObject jsonObject = JSONObject.parseObject(extractFirstJsonObject(rawContent));
+        
+        // 步骤2：提取comment字段
         String comment = jsonObject.getString("comment");
         if (StrUtil.isBlank(comment)) {
             throw new IllegalArgumentException("comment 字段缺失");
         }
+        
+        // 步骤3：去除首尾空白字符后返回
         return comment.trim();
     }
 
     /**
      * JSON字符串解析为五大分数
-     * @param rawContent  分数对应的json字符串
-     * @return  结构化分数
+     * 从模型输出的原始文本中提取并解析5个维度的分数
+     *
+     * @param rawContent  分数对应的json字符串（可能包含Markdown标记）
+     * @return  包含5个维度分数的结构化对象
+     * @throws IllegalArgumentException 当任一必填字段缺失时抛出
      */
     private EvaluationScorePayload parseScorePayload(String rawContent) {
+        // 步骤1：从原始文本中提取第一个完整的JSON对象
         JSONObject jsonObject = JSONObject.parseObject(extractFirstJsonObject(rawContent));
+        
+        // 步骤2：依次读取5个必填分数字段，并进行归一化处理
         return new EvaluationScorePayload(
                 readRequiredScore(jsonObject, "completeness"),
                 readRequiredScore(jsonObject, "levelOfDetail"),
@@ -485,8 +616,12 @@ public class AgentAskImpl implements AgentAsk {
 
     /**
      * 校验JSONObject是否存在对应字段
+     * 读取必填分数字段并进行归一化处理（限制在0-10范围内）
+     *
      * @param jsonObject json对象
      * @param fieldName 对应字段名
+     * @return 归一化后的分数值（0-10）
+     * @throws IllegalArgumentException 当字段缺失时抛出
      */
     private int readRequiredScore(JSONObject jsonObject, String fieldName) {
         Integer score = jsonObject.getInteger(fieldName);
@@ -498,69 +633,82 @@ public class AgentAskImpl implements AgentAsk {
 
     /**
      * 从大模型原始输出中提取第一个完整的JSON对象
-     * 使用嵌套深度追踪，解析json对象
-     * @param rawContent 原始内容
-     * @return 提取后内容
+     * 使用嵌套深度追踪算法，精确识别JSON对象的起始和结束位置
+     * 支持处理包含Markdown标记、转义字符和嵌套结构的复杂场景
+     *
+     * @param rawContent 原始内容（可能包含Markdown标记或其他非JSON文本）
+     * @return 提取后的完整JSON字符串
+     * @throws IllegalArgumentException 当未找到JSON起始符或JSON结构不完整时抛出
      */
     private String extractFirstJsonObject(String rawContent) {
-        //去除md标记&空白字符
+        // 步骤1：去除Markdown标记和首尾空白字符
         String normalized = normalizeModelContent(rawContent);
-        //定位起始符
+            
+        // 步骤2：定位JSON对象的起始符 '{'
         int start = normalized.indexOf('{');
         if (start < 0) {
             throw new IllegalArgumentException("未找到 JSON 对象起始符");
         }
-        //嵌套深度
-        int depth = 0;
-        //标记但却按是否在字符串内部
-        boolean inQuotes = false;
-        //标记前一个字符是否为转义字符
-        boolean escaped = false;
-        //从json的可能开始位置遍历到字符串末尾
+            
+        // 步骤3：初始化状态变量
+        int depth = 0;              // 嵌套深度计数器
+        boolean inQuotes = false;   // 标记当前是否在字符串内部
+        boolean escaped = false;    // 标记前一个字符是否为转义字符
+            
+        // 步骤4：从JSON的可能开始位置遍历到字符串末尾
         for (int i = start; i < normalized.length(); i++) {
             char current = normalized.charAt(i);
-            //前一个字符是转义字符，跳过当前字符判断
-            //避免将  \“ 判断为字符串结束
+                
+            // 步骤5：如果前一个字符是转义字符，跳过当前字符判断
+            // 避免将 \" 误判为字符串结束
             if (escaped) {
                 escaped = false;
                 continue;
             }
-            //当前为转义字符 '\'
-            //是的话设置判断标识
+                
+            // 步骤6：检测转义字符 '\'
             if (current == '\\') {
                 escaped = true;
                 continue;
             }
-            //判断当前是否在字符串当中
-            //用于区分json字符串外部括号&字符串内部字符
+                
+            // 步骤7：检测双引号，切换字符串内外状态
+            // 用于区分JSON结构括号和字符串内部的普通字符
             if (current == '"') {
                 inQuotes = !inQuotes;
                 continue;
             }
-            //当前在字符串内部，跳过字符判断，避免字符串内普通字符影响判断json结构
+                
+            // 步骤8：如果在字符串内部，跳过字符判断
+            // 避免字符串内的普通字符影响JSON结构解析
             if (inQuotes) {
                 continue;
             }
-            //当前为前括号，说明嵌套深度+1
+                
+            // 步骤9：检测左括号，嵌套深度+1
             if (current == '{') {
                 depth++;
-                //遇到后括号，不一定是json字符串结尾，只能说明嵌套深度-1
+            // 步骤10：检测右括号，嵌套深度-1
             } else if (current == '}') {
                 depth--;
-                //嵌套深度为0，说明为json结尾
+                // 步骤11：当嵌套深度归零时，说明找到了完整的JSON对象
                 if (depth == 0) {
                     return normalized.substring(start, i + 1);
                 }
             }
         }
+            
+        // 步骤12：遍历完成但未找到匹配的结束符，JSON结构不完整
         throw new IllegalArgumentException("JSON 对象不完整");
     }
 
     /**
      * 模型输出归一化
-     * 功能：预防模型使用md输出导致输出不合规
-     * @param rawContent 输出内容
-     * @return 归一化输出
+     * 功能：预防模型使用Markdown格式输出导致JSON解析失败
+     * 移除常见的Markdown代码块标记（```json、```JSON、```）
+     *
+     * @param rawContent 原始输出内容
+     * @return 归一化后的纯文本内容
      */
     private String normalizeModelContent(String rawContent) {
         String normalized = StrUtil.blankToDefault(rawContent, "").trim();
@@ -572,49 +720,73 @@ public class AgentAskImpl implements AgentAsk {
 
     /**
      * 判断当前异常是否为不可重试异常
-     * @param ex 异常
+     * 对于API密钥缺失或输入参数缺失等配置错误，重试无法解决问题，应立即终止重试
+     *
+     * @param ex 异常对象
+     * @return true-不可重试异常；false-可重试异常
      */
     private boolean isNonRetryableModelException(Exception ex) {
-        //没用api 调用密钥/缺失输入异常，无法重试
+        // 没有API调用密钥或缺失输入异常，无法通过重试解决
         return ex instanceof NoApiKeyException || ex instanceof InputRequiredException;
     }
 
     /**
-     * 当分数模型持续异常时，使用回答长度与技术关键词命中率生成保守分数。
-     * 该兜底只用于“模型不可用”场景，因此 accuracy 被严格限制在较低区间，避免误判为高分。
+     * 当分数模型持续异常时，使用回答长度与技术关键词命中率生成保守分数
+     * 该兜底只用于“模型不可用”场景，因此 accuracy 被严格限制在较低区间，避免误判为高分
+     *
+     * @param answer 候选人回答文本
+     * @return 基于启发式规则计算的5维度分数
      */
     private EvaluationScorePayload buildHeuristicScorePayload(String answer) {
-        //字符串归一化
+        // 步骤1：字符串归一化（去除所有空白字符）
         String normalized = answer.replaceAll("\\s+", "");
         int length = normalized.length();
-        //小于规定长度，分数为0
+        
+        // 步骤2：如果回答长度低于最小阈值，所有维度分数均为0
         if (length < MIN_ANSWER_LENGTH_FOR_AI) {
             return new EvaluationScorePayload(0, 0, 0, 0, 0);
         }
-        //关键字
+        
+        // 步骤3：统计技术关键词命中次数（用于评估专业度）
         int keywordHits = countTechnicalKeywordHits(normalized.toLowerCase());
-        //结构化
+        
+        // 步骤4：检测回答是否具有结构化特征（如“首先、其次、最后”等逻辑词）
         boolean structured = containsAny(normalized, "首先", "其次", "最后", "因为", "所以", "方案", "实现", "步骤", "1.", "2.", "3.");
 
+        // 步骤5：基于回答长度、关键词命中数和结构化程度计算各维度分数
+        // completeness（完整度）：基础分 + 关键词加分，上限8分
         int completeness = Math.min(8, scoreByLength(length, 2, 4, 5, 6, 7) + Math.min(1, keywordHits / 3));
+        
+        // levelOfDetail（细节度）：基础分 + 结构化加分，上限8分
         int levelOfDetail = Math.min(8, scoreByLength(length, 1, 3, 4, 5, 6) + (structured ? 1 : 0));
+        
+        // accuracy（准确度）：严格限制在低分区间，上限4分，避免误判
         int accuracy = Math.min(4, scoreByLength(length, 0, 1, 2, 3, 3) + Math.min(1, keywordHits / 4));
+        
+        // logic（逻辑度）：基础分 + 结构化加分（结构化回答逻辑性更强），上限7分
         int logic = Math.min(7, scoreByLength(length, 1, 2, 3, 4, 5) + (structured ? 2 : 0));
+        
+        // expressionAbility（表达能力）：基础分 + 结构化加分，上限7分
         int expressionAbility = Math.min(7, scoreByLength(length, 1, 2, 3, 4, 5) + (structured ? 1 : 0));
+        
         return new EvaluationScorePayload(completeness, levelOfDetail, accuracy, logic, expressionAbility);
     }
 
     /**
      * 简单计算术语命中次数
-     * 用于兜底判断
-     * @param answer 回答问题
+     * 用于兜底评分时评估候选人的技术专业度
+     *
+     * @param answer 回答文本（已转换为小写）
      * @return  术语命中次数
      */
     private int countTechnicalKeywordHits(String answer) {
+        // 定义常见技术关键词列表
         List<String> keywords = Arrays.asList(
                 "redis", "mysql", "rocketmq", "rabbitmq", "spring", "java",
                 "分布式", "缓存", "数据库", "事务", "锁", "一致性", "幂等", "消息队列"
         );
+        
+        // 遍历关键词列表，统计命中次数
         int hits = 0;
         for (String keyword : keywords) {
             if (answer.contains(keyword)) {
@@ -625,11 +797,12 @@ public class AgentAskImpl implements AgentAsk {
     }
 
     /**
-     * 判断关键字包含
-     * 用于兜底判断
-     * @param text 文本
-     * @param fragments 关键字
-     * @return 是否包含
+     * 判断文本是否包含任意一个关键字片段
+     * 用于兜底评分时检测回答的结构化特征
+     *
+     * @param text 待检测文本
+     * @param fragments 关键字片段列表
+     * @return true-包含至少一个关键字；false-不包含任何关键字
      */
     private boolean containsAny(String text, String... fragments) {
         for (String fragment : fragments) {
@@ -642,6 +815,15 @@ public class AgentAskImpl implements AgentAsk {
 
     /**
      * 根据回答长度，选择对应分数，用于简单兜底评分
+     * 采用分段评分策略，回答越长基础分数越高
+     *
+     * @param length 回答文本长度（去除空白字符后）
+     * @param shortScore 短回答分数（长度 < 20）
+     * @param mediumScore 中等回答分数（20 <= 长度 < 60）
+     * @param longScore 长回答分数（60 <= 长度 < 120）
+     * @param longerScore 更长回答分数（120 <= 长度 < 240）
+     * @param richScore 丰富回答分数（长度 >= 240）
+     * @return 对应长度区间的分数
      */
     private int scoreByLength(int length, int shortScore, int mediumScore, int longScore, int longerScore, int richScore) {
         if (length < 20) {
@@ -662,8 +844,9 @@ public class AgentAskImpl implements AgentAsk {
     /**
      * 构建降级兜底评价
      * 功能：识别到用户回答过短/意图为“不会”等，触发兜底评价，降低LLM压力
+     *
      * @param requestParam 面试问题&回答输入类
-     * @return  面试评价
+     * @return  面试评价（所有维度分数为0）
      */
     private AnswerEvaluationRespDTO buildShortAnswerFallback(QuestionWithAnswer requestParam) {
         return buildFallbackEvaluation(requestParam,
@@ -673,27 +856,33 @@ public class AgentAskImpl implements AgentAsk {
 
     /**
      * 模型调用失败降级回答构建
+     * 当模型多次调用失败时，使用启发式评分作为兜底策略
+     *
      * @param requestParam  请求参数
-     * @param reason 原因
-     * @return 评估返回类
+     * @param reason 失败原因描述
+     * @return 评估返回类（包含兜底评语和启发式分数）
      */
     private AnswerEvaluationRespDTO buildModelFailureFallback(QuestionWithAnswer requestParam, String reason) {
         if (requestParam == null) {
             throw new ClientException("评估参数不足，请检查");
         }
+        // 使用启发式规则计算保守分数
         EvaluationScorePayload heuristicScore = buildHeuristicScorePayload(StrUtil.blankToDefault(requestParam.getAnswer(), ""));
         return buildFallbackEvaluation(requestParam, FALLBACK_COMMENT_PREFIX + reason, heuristicScore);
     }
 
     /**
      * 构建降级评估返回对象
+     * 统一封装兜底评价的构建逻辑，包括评语、分数和归一化处理
+     *
      * @param requestParam  问题&面试对象回答
-     * @param comment 大模型评价
-     * @param scorePayload 所有分数
+     * @param comment 大模型评价（或兜底评语）
+     * @param scorePayload 所有维度分数
      * @return 评估返回类对象
      */
     private AnswerEvaluationRespDTO buildFallbackEvaluation(QuestionWithAnswer requestParam, String comment,
                                                             EvaluationScorePayload scorePayload) {
+        // 步骤1：构建API评估响应对象
         ApiEvaluationResp apiEvaluationResp = ApiEvaluationResp.builder()
                 .comment(comment)
                 .completeness(scorePayload.getCompleteness())
@@ -702,14 +891,20 @@ public class AgentAskImpl implements AgentAsk {
                 .logic(scorePayload.getLogic())
                 .expressionAbility(scorePayload.getExpressionAbility())
                 .build();
+        
+        // 步骤2：对分数进行归一化处理（限制在0-10范围内）
         normalizeEvaluationResp(apiEvaluationResp);
+        
+        // 步骤3：返回评估结果对象
         return new AnswerEvaluationRespDTO(requestParam, apiEvaluationResp);
     }
 
     /**
-     * 批量评估终端，构建兜底保守策略评分
-     * @param requestParams 问题&回答
-     * @return 兜底评估
+     * 批量评估中断时的兜底策略
+     * 当批量评估任务被中断时，为所有题目生成保守评分
+     *
+     * @param requestParams 问题&回答列表
+     * @return 兜底评估结果列表（按题目编号排序）
      */
     private List<AnswerEvaluationRespDTO> buildInterruptedBatchFallback(List<QuestionWithAnswer> requestParams) {
         return requestParams.stream()
@@ -720,6 +915,10 @@ public class AgentAskImpl implements AgentAsk {
 
     /**
      * 判断是否是兜底评估
+     * 通过检查评语是否以兜底前缀开头来识别
+     *
+     * @param dto 评估结果对象
+     * @return true-是兜底评估；false-是正常模型评估
      */
     private boolean isFallbackEvaluation(AnswerEvaluationRespDTO dto) {
         return dto != null
@@ -727,6 +926,13 @@ public class AgentAskImpl implements AgentAsk {
                 && StrUtil.startWith(dto.getApiResp().getComment(), FALLBACK_COMMENT_PREFIX);
     }
 
+    /**
+     * 截断文本用于日志记录
+     * 避免日志中输出过长的文本内容，限制最大长度为300字符
+     *
+     * @param content 原始文本内容
+     * @return 截断后的文本（超过300字符时添加"..."）
+     */
     private String truncateForLog(String content) {
         String normalized = StrUtil.blankToDefault(content, "").replaceAll("\\s+", " ").trim();
         if (normalized.length() <= 300) {
@@ -737,36 +943,55 @@ public class AgentAskImpl implements AgentAsk {
 
     /**
      * 通过面试人简历构建对应描述文本
+     * 将简历中的各个字段拼接成自然语言描述，作为大模型的输入上下文
+     *
+     * @param form 候选人简历信息
+     * @return 格式化的简历描述文本
      */
     private String buildFormDescription(IntervieweeForm form) {
         StringBuilder builder = new StringBuilder();
+        
+        // 步骤1：添加基本信息（姓名、求职意向）
         builder.append("候选人姓名：").append(form.getCandidateName())
                 .append("；求职意向：").append(form.getJobIntention());
+        
+        // 步骤2：添加专业技能列表
         if (CollectionUtil.isNotEmpty(form.getProfessionalSkills())) {
             builder.append("；专业技能：")
                     .append(String.join("、", form.getProfessionalSkills()));
         }
+        
+        // 步骤3：添加教育经历（学校、专业、学历）
         if (CollectionUtil.isNotEmpty(form.getEducationExperiences())) {
             builder.append("；教育经历：")
                     .append(form.getEducationExperiences().stream()
                             .map(each -> each.getSchoolName() + " " + each.getMajor() + " " + each.getDegree())
                             .collect(Collectors.joining("；")));
         }
+        
+        // 步骤4：添加工作经历
         if (CollectionUtil.isNotEmpty(form.getWorkExperiences())) {
             builder.append("；工作经历：")
                     .append(buildWorkDescription(form.getWorkExperiences()));
         }
+        
+        // 步骤5：添加项目经历
         if (CollectionUtil.isNotEmpty(form.getProjectExperiences())) {
             builder.append("；项目经历：")
                     .append(form.getProjectExperiences().stream()
                             .map(this::buildProjectDescription)
                             .collect(Collectors.joining("；")));
         }
+        
         return builder.toString();
     }
 
     /**
      * 工作经历描述构建
+     * 将工作经历列表转换为自然语言描述
+     *
+     * @param workExperiences 工作经历列表
+     * @return 格式化的工作经历描述文本
      */
     private String buildWorkDescription(List<WorkExperience> workExperiences) {
         return workExperiences.stream()
@@ -776,6 +1001,10 @@ public class AgentAskImpl implements AgentAsk {
 
     /**
      * 项目经历构建
+     * 将单个项目经历转换为结构化描述文本
+     *
+     * @param projectExperience 项目经历对象
+     * @return 格式化的项目描述文本（包含角色、描述、职责、成果）
      */
     private String buildProjectDescription(ProjectExperience projectExperience) {
         return projectExperience.getProjectName()
@@ -787,8 +1016,14 @@ public class AgentAskImpl implements AgentAsk {
 
     /**
      * 整体分数评估（包含总分和各维度分数）
+     * 基于所有题目的评估结果，计算加权平均分和综合面试分数
+     * 不同难度的题目赋予不同权重：简单(1.0)、中等(1.2)、困难(1.5)
+     *
+     * @param list 所有题目的评估结果列表
+     * @return 包含总分和各维度分数的DTO对象
      */
     private InterviewDimensionScoreDTO calculateDimensionScore(List<AnswerEvaluationRespDTO> list) {
+        // 步骤1：初始化累加器
         double totalAccuracyScore = 0;
         double totalCompletenessScore = 0;
         double totalLevelOfDetailScore = 0;
@@ -796,17 +1031,20 @@ public class AgentAskImpl implements AgentAsk {
         double totalExpressionAbilityScore = 0;
         double totalWeight = 0;
 
+        // 步骤2：遍历所有题目，按难度加权累加各维度分数
         for (AnswerEvaluationRespDTO dto : list) {
             ApiEvaluationResp apiResp = dto.getApiResp();
             InterviewQuestion question = dto.getQuestion();
 
+            // 根据题目难度确定权重
             double weight = switch (question.getLevel()) {
-                case 0 -> 1.0;
-                case 1 -> 1.2;
-                case 2 -> 1.5;
+                case 0 -> 1.0;   // 简单题
+                case 1 -> 1.2;   // 中等题
+                case 2 -> 1.5;   // 困难题
                 default -> 1.0;
             };
 
+            // 累加加权分数
             totalAccuracyScore += apiResp.getAccuracy() * weight;
             totalCompletenessScore += apiResp.getCompleteness() * weight;
             totalLevelOfDetailScore += apiResp.getLevelOfDetail() * weight;
@@ -815,12 +1053,15 @@ public class AgentAskImpl implements AgentAsk {
             totalWeight += weight;
         }
 
+        // 步骤3：计算各维度的加权平均分，并归一化到0-10范围
         int accuracyScore = normalizeTotalScore(totalAccuracyScore / totalWeight);
         int completenessScore = normalizeTotalScore(totalCompletenessScore / totalWeight);
         int levelOfDetailScore = normalizeTotalScore(totalLevelOfDetailScore / totalWeight);
         int logicScore = normalizeTotalScore(totalLogicScore / totalWeight);
         int expressionAbilityScore = normalizeTotalScore(totalExpressionAbilityScore / totalWeight);
 
+        // 步骤4：计算综合面试分数（满分100分）
+        // 权重分配：准确度35%、完整度20%、细节度15%、逻辑度15%、表达能力15%
         int interviewPoint = (int) Math.round((
                 accuracyScore * 0.35 +
                         completenessScore * 0.20 +
@@ -829,6 +1070,7 @@ public class AgentAskImpl implements AgentAsk {
                         expressionAbilityScore * 0.15
         ) * 10);
 
+        // 步骤5：返回包含总分和各维度分数的DTO对象
         return InterviewDimensionScoreDTO.builder()
                 .interviewPoint(interviewPoint)
                 .accuracyScore(accuracyScore)

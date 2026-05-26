@@ -41,7 +41,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class BaiLianEmbeddingClient implements EmbeddingClient {
 
-    private static final int DEFAULT_BATCH_SIZE = 16;
+    private static final int DEFAULT_BATCH_SIZE = 10;
 
     private final AIModelProperties properties;
     private final EmbeddingModelRegistry modelRegistry;

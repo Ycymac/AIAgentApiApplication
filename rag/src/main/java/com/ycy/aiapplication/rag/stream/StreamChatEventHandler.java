@@ -129,6 +129,7 @@ public class StreamChatEventHandler implements StreamCallback {
         int length = content.length();
         int idx = 0;
         int count = 0;
+        //通过StringBuilder缓存字符
         StringBuilder buffer = new StringBuilder();
         while (idx < length) {
             //字符串内容当中提取完整的一个字符，放入buffer当中

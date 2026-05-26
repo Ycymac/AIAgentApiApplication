@@ -21,6 +21,7 @@ import com.ycy.aiapplication.framework.exception.ClientException;
 import com.ycy.aiapplication.framework.exception.ServiceException;
 
 import com.ycy.aiapplication.infrastructure.ai.embedding.EmbeddingService;
+import com.ycy.aiapplication.infrastructure.ai.token.TokenCounterService;
 import com.ycy.aiapplication.knowledge.common.enums.DocumentStatus;
 import com.ycy.aiapplication.knowledge.common.enums.ProcessMode;
 import com.ycy.aiapplication.knowledge.common.enums.SourceType;
@@ -51,6 +52,7 @@ import org.apache.rocketmq.client.producer.SendResult;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionOperations;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
@@ -65,12 +67,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.ZoneId;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
@@ -97,6 +94,8 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     //默认搜索返回条数
     private static final int DEFAULT_SEARCH_LIMIT = 8;
     private static final long DOCUMENT_PARSE_TIMEOUT_SECONDS = 15L;
+    //批量插入默认单批插入条数
+    private static final int BATCH_INSERT_SIZE = 16;
 
     private final KnowledgeDocumentMapper knowledgeDocumentMapper;
     private final KnowledgeDocumentChunkLogMapper knowledgeDocumentChunkLogMapper;
@@ -108,7 +107,8 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     private final ObjectProvider<EmbeddingService> embeddingServiceProvider;
     private final VectorStoreService vectorStoreService;
     private final KnowledgeDocumentAsyncChunkProducer knowledgeDocumentAsyncChunkProducer;
-
+    private final TokenCounterService tokenCounterService;
+    private final TransactionOperations transactionOperations;
 
     /**
      * 上传知识库文档。(仅进行文件上传)
@@ -210,7 +210,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         SendResult sentMessage = knowledgeDocumentAsyncChunkProducer.sendMessage(KnowledgeDocumentAsyncChunkEvent.builder()
                 .docId(docId)
                 .build());
-        log.info("异步任务消息发送成功, docId={}，发送结果状态：{}，消息id：{}", docId,sentMessage.getSendStatus(),sentMessage.getMsgId());
+        log.info("异步任务消息发送成功, docId={}，发送结果状态：{}，消息id：{}", docId, sentMessage.getSendStatus(), sentMessage.getMsgId());
     }
 
     /**
@@ -259,7 +259,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
             long extractStart = System.currentTimeMillis();
             String extractedText = extractDocumentText(documentDO);
             extractDuration = System.currentTimeMillis() - extractStart;
-            log.info("文档解析玩咸亨, docId={}, extractDuration={}ms, textLength={}",
+            log.info("文档解析完成, docId={}, extractDuration={}ms, textLength={}",
                     docId, extractDuration, extractedText == null ? 0 : extractedText.length());
 
             // 第二步：按文档当前保存的分块策略与分块配置执行切分。
@@ -289,7 +289,6 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
             persistDuration = System.currentTimeMillis() - persistStart;
             log.info("分块持久化完成, docId={}, persistDuration={}ms, finalStatus={}",
                     docId, persistDuration, documentDO.getStatus());
-
             fillSuccessLog(chunkLog, extractDuration, chunkDuration, embedDuration, persistDuration, chunks.size(), totalStart);
             knowledgeDocumentChunkLogMapper.updateById(chunkLog);
             log.info("分块整体流程执行成功, docId={}, totalDuration={}ms, chunkLogId={}",
@@ -643,20 +642,28 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
      * 删除旧的文档分块，插入新的文档分块，确保无残留
      */
     private void replaceDocumentChunks(KnowledgeBaseDO kbDO, KnowledgeDocumentDO documentDO, List<VectorChunk> chunks) {
-        deleteDocumentChunksQuietly(documentDO.getId());
-        if (CollUtil.isEmpty(chunks)) {
-            return;
-        }
-        String operator = currentOperator();
-        for (VectorChunk chunk : chunks) {
-            knowledgeChunkDOMapper.insert(buildChunkDO(kbDO, documentDO, chunk, operator));
-        }
+        transactionOperations.executeWithoutResult(status -> {
+            deleteDocumentChunksQuietly(documentDO.getId());
+            if (CollUtil.isEmpty(chunks)) {
+                return;
+            }
+            String operator = currentOperator();
+            List<KnowledgeChunkDO> knowledgeChunkDOList = chunks.stream().map(each -> buildChunkDO(kbDO, documentDO, each, operator)).toList();
+            if (!CollUtil.isEmpty(knowledgeChunkDOList)) {
+                for (int i = 0; i < knowledgeChunkDOList.size(); i += BATCH_INSERT_SIZE) {
+                    int j = Math.min(i + BATCH_INSERT_SIZE, knowledgeChunkDOList.size());
+                    List<KnowledgeChunkDO> subList = knowledgeChunkDOList.subList(i, j);
+                    knowledgeChunkDOMapper.insert(subList);
+                }
+
+            }
+        });
     }
 
     /**
      * 删除数据库当中当前文件的所有分块
      */
-    private void deleteDocumentChunksQuietly(String docId) {
+    protected void deleteDocumentChunksQuietly(String docId) {
         if (!StringUtils.hasText(docId)) {
             return;
         }
@@ -670,6 +677,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     private KnowledgeChunkDO buildChunkDO(KnowledgeBaseDO kbDO, KnowledgeDocumentDO documentDO, VectorChunk chunk, String operator) {
         String content = StrUtil.nullToEmpty(chunk.getContent());
         return KnowledgeChunkDO.builder()
+                .id(chunk.getChunkId())
                 .kbId(kbDO.getId())
                 .docId(documentDO.getId())
                 .chunkIndex(chunk.getIndex())
@@ -677,7 +685,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
                 //使用sha256哈希算法计算唯一的哈希指纹
                 .contentHash(DigestUtil.sha256Hex(content))
                 .charCount(content.length())
-                .tokenCount(null)
+                .tokenCount(tokenCounterService.countTokens(content))
                 .enabled(1)
                 .createdBy(operator)
                 .updatedBy(operator)
@@ -721,7 +729,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         String fileName = resolveSourceFileName(documentDO);
         String mimeType = probeMimeType(documentDO, fileName);
         DocumentParser parser = selectParser(fileName, mimeType);
-        Path tempFile = null;
+        Path tempFile;
         log.info("Preparing document extraction, docId={}, fileName={}, mimeType={}, parser={}, sourceType={}, fileUrl={}, objectKey={}, sourceLocation={}",
                 documentDO.getId(),
                 fileName,
@@ -1218,7 +1226,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     /**
      * 规范化分块配置。
      * <p>
-     * 原始 JSON 会先被解析成 Map，再通过 ChunkingMode 补齐默认值，
+     * 原始 JSON 会先被解析成 Map，再通过 ChunkingMode补齐默认值，
      * 最终重新序列化后保存，保证数据库中保存的是标准化配置。
      *
      * @param chunkConfig  原始分块配置 JSON
@@ -1242,7 +1250,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
             return new HashMap<>();
         }
         try {
-            Map<String, Object> configMap = JSON.parseObject(chunkConfig, new TypeReference<Map<String, Object>>() {
+            Map<String, Object> configMap = JSON.parseObject(chunkConfig, new TypeReference<>() {
             });
             return configMap == null ? new HashMap<>() : new HashMap<>(configMap);
         } catch (Exception ex) {
@@ -1310,7 +1318,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         return userId == null ? "system" : String.valueOf(userId);
     }
 
-    private boolean docExists(String docId){
+    private boolean docExists(String docId) {
         return knowledgeDocumentMapper.exists(new LambdaQueryWrapper<>(KnowledgeDocumentDO.class)
                 .eq(KnowledgeDocumentDO::getId, docId)
                 .eq(KnowledgeDocumentDO::getDeleted, false)

@@ -2,6 +2,7 @@ package com.ycy.aiapplication.framework.context;
 
 
 
+import com.alibaba.ttl.TransmittableThreadLocal;
 import lombok.Setter;
 
 import java.util.Optional;
@@ -11,7 +12,7 @@ import java.util.Optional;
  */
 
 public final class UserContext {
-    private static final ThreadLocal<UserInfoDTO>USER_THREAD_LOCAL=new ThreadLocal<>();
+    private static final ThreadLocal<UserInfoDTO>USER_THREAD_LOCAL=new TransmittableThreadLocal<>();
     @Setter
     private static volatile UserNickNameResolver userNickNameResolver;
 

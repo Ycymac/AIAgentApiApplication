@@ -12,6 +12,10 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "rag.retrieve")
 public class RAGRetrieveProperties {
     /**
+     * 向量严格清洗开关
+     */
+    private Boolean strictDataBaseFilterUse;
+    /**
      * 检索通道配置
      */
     private Channels channels = new Channels();
@@ -58,4 +62,10 @@ public class RAGRetrieveProperties {
          */
         private int topKMultiplier = 2;
     }
+
+    public boolean getStrictDBFilterUse(){
+        if(strictDataBaseFilterUse==null)return false;
+        else return strictDataBaseFilterUse;
+    }
+
 }

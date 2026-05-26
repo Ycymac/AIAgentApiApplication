@@ -2,8 +2,10 @@ package com.ycy.aiapplication.rag.core.intent.common;
 
 import com.ycy.aiapplication.rag.core.intent.common.enums.IntentKind;
 import com.ycy.aiapplication.rag.core.intent.common.enums.IntentLevel;
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -16,6 +18,8 @@ import java.util.List;
  */
 @Data
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class IntentNode {
 
     /**
@@ -42,11 +46,6 @@ public class IntentNode {
      * 节点层级。
      */
     private IntentLevel level;
-
-    /**
-     * 父节点 ID。
-     */
-    private String parentId;
 
     /**
      * 示例问题列表。

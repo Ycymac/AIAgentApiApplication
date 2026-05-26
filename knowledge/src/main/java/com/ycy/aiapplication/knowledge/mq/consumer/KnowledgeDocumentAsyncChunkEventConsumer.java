@@ -36,7 +36,7 @@ public class KnowledgeDocumentAsyncChunkEventConsumer implements RocketMQListene
     @IdempotentConsume(
             keyPrefix = "knowledge_document_execute:idempotent",
             key = "#messageWrapper.message.docId",
-            keyTimeOut = 120
+            keyTimeOut = 3600
     )
     public void onMessage(MessageWrapper<KnowledgeDocumentAsyncChunkEvent> messageWrapper) {
         if (messageWrapper == null ) {

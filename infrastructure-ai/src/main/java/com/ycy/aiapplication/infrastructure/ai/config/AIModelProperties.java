@@ -81,14 +81,14 @@ public class AIModelProperties {
 
         private Integer dimension = 1024;
 
-        private Map<String, String> models = defaultEmbeddingModels();
+        private Map<String, String> models /*= defaultEmbeddingModels()*/;
 
-        private static Map<String, String> defaultEmbeddingModels() {
+/*        private static Map<String, String> defaultEmbeddingModels() {
             Map<String, String> models = new LinkedHashMap<>();
             models.put("bailian", "text-embedding-v4");
-            models.put("siliconflow", "BAAI/bge-m3");
+            models.put("siliconflow", "Qwen/Qwen3-Embedding-0.6B");
             return models;
-        }
+        }*/
     }
 
     /**

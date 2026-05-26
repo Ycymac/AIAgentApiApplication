@@ -18,7 +18,6 @@ import org.springframework.util.StringUtils;
 
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -72,10 +71,17 @@ public class IntentNodeManageServiceImpl implements IntentNodeManageService {
     }
 
     /**
-     * 同步知识库表与知识库意图节点表。
-     * 仅为从未创建过节点的新知识库自动补建，避免手动删除后被同步逻辑重新创建。
+     * 同步知识库到意图节点
+     * <p>
+     * 核心同步策略：
+     * 1. 新增：为未关联节点的有效知识库创建意图节点
+     * 2. 补全：为已有节点但缺少名称/描述的知识库补充默认信息
+     * 3. 软删除：将已删除知识库对应的节点标记为删除状态
+     *
+     * @apiNote 该方法确保意图节点与知识库状态保持一致，避免孤立节点
      */
     private void syncNodesFromKnowledgeBase() {
+        // 查询所有有效知识库和已存在的知识库节点
         List<KnowledgeBaseDO> knowledgeBases = knowledgeBaseMapper.selectList(
                 Wrappers.lambdaQuery(KnowledgeBaseDO.class)
                         .eq(KnowledgeBaseDO::getDeleted, 0)
@@ -85,6 +91,7 @@ public class IntentNodeManageServiceImpl implements IntentNodeManageService {
                         .isNotNull(IntentNodeDO::getKbId)
         );
 
+        // 构建活跃节点映射（kbId -> 未删除节点）和历史知识库ID集合
         Map<String, IntentNodeDO> activeNodeByKbId = existingKbNodes.stream()
                 .filter(each -> Objects.equals(each.getDeleted(), 0))
                 .collect(Collectors.toMap(IntentNodeDO::getKbId, Function.identity(), (left, right) -> left));
@@ -92,42 +99,47 @@ public class IntentNodeManageServiceImpl implements IntentNodeManageService {
                 .map(IntentNodeDO::getKbId)
                 .filter(StringUtils::hasText)
                 .collect(Collectors.toSet());
-        Set<String> activeKbIds = new HashSet<>(knowledgeBases.stream()
+        Set<String> activeKbIds = knowledgeBases.stream()
                 .map(KnowledgeBaseDO::getId)
-                .collect(Collectors.toSet()));
+                .collect(Collectors.toSet());
 
+        // 策略1&2：遍历有效知识库，执行新增或补全操作
         for (KnowledgeBaseDO each : knowledgeBases) {
             IntentNodeDO existing = activeNodeByKbId.get(each.getId());
-            if (existing == null) {
-                if (!historyKbIds.contains(each.getId())) {
-                    intentNodeMapper.insert(IntentNodeDO.builder()
-                            .kbId(each.getId())
-                            .name(each.getName())
-                            .description(buildDefaultDescription(each))
-                            .enabled(1)
-                            .createdBy(currentOperator())
-                            .updatedBy(currentOperator())
-                            .deleted(0)
-                            .build());
-                }
+            
+            // 策略1：知识库无对应节点且历史上也未创建过，则新建节点
+            if (existing == null && !historyKbIds.contains(each.getId())) {
+                intentNodeMapper.insert(IntentNodeDO.builder()
+                        .kbId(each.getId())
+                        .name(each.getName())
+                        .description(buildDefaultDescription(each))
+                        .enabled(1)
+                        .createdBy(currentOperator())
+                        .updatedBy(currentOperator())
+                        .deleted(0)
+                        .build());
                 continue;
             }
-
-            boolean changed = false;
-            if (!StringUtils.hasText(existing.getName())) {
-                existing.setName(each.getName());
-                changed = true;
-            }
-            if (!StringUtils.hasText(existing.getDescription())) {
-                existing.setDescription(buildDefaultDescription(each));
-                changed = true;
-            }
-            if (changed) {
-                existing.setUpdatedBy(currentOperator());
-                intentNodeMapper.updateById(existing);
+            
+            // 策略2：节点存在但缺少关键信息，补充默认值
+            if (existing != null) {
+                boolean changed = false;
+                if (!StringUtils.hasText(existing.getName())) {
+                    existing.setName(each.getName());
+                    changed = true;
+                }
+                if (!StringUtils.hasText(existing.getDescription())) {
+                    existing.setDescription(buildDefaultDescription(each));
+                    changed = true;
+                }
+                if (changed) {
+                    existing.setUpdatedBy(currentOperator());
+                    intentNodeMapper.updateById(existing);
+                }
             }
         }
 
+        // 策略3：软删除已失效的知识库节点（知识库已删除但节点仍存活）
         for (IntentNodeDO each : existingKbNodes) {
             if (Objects.equals(each.getDeleted(), 1) || activeKbIds.contains(each.getKbId())) {
                 continue;

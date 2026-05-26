@@ -2,6 +2,7 @@ package com.ycy.aiapplication.rag.core.retrieve.channel.impls;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
+import com.ycy.aiapplication.knowledge.dao.mapper.KnowledgeChunkDOMapper;
 import com.ycy.aiapplication.rag.config.RAGRetrieveProperties;
 import com.ycy.aiapplication.rag.core.intent.common.IntentNode;
 import com.ycy.aiapplication.rag.core.intent.common.NodeScore;
@@ -30,8 +31,9 @@ public class IntentDirectedSearchChannel extends AbstractVectorSearchChannel {
     private final RAGRetrieveProperties retrieveProperties;
 
     public IntentDirectedSearchChannel(CollectionParallelRetriever collectionParallelRetriever,
-                                       RAGRetrieveProperties retrieveProperties) {
-        super(collectionParallelRetriever);
+                                       RAGRetrieveProperties retrieveProperties,
+                                       KnowledgeChunkDOMapper knowledgeChunkDOMapper) {
+        super(collectionParallelRetriever, retrieveProperties, knowledgeChunkDOMapper);
         this.retrieveProperties = retrieveProperties;
     }
 

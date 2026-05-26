@@ -8,6 +8,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -29,6 +30,6 @@ public class ReportGenerationReqDTO {
         if (answerEvaluationRespS == null || answerEvaluationRespS.length == 0) {
             return Collections.emptyList();
         }
-        return Arrays.asList(answerEvaluationRespS);
+        return new ArrayList<>(Arrays.asList(answerEvaluationRespS));
     }
 }

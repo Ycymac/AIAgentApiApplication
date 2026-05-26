@@ -16,8 +16,14 @@ import org.redisson.api.RedissonClient;
 import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.lang.reflect.Array;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * 防止用户重复提交表单信息切面控制类
@@ -92,7 +98,48 @@ public class IdempotentSubmitAspect {
      */
     private String calArgsMD5(ProceedingJoinPoint joinPoint){
         //通过JoinPoint.getArgs能够拿到调用传入的具体参数，这样才能防止同一个用户相同参数短时间内多次调用 ， 而不会拦截相同用户相同接口不同参数的请求
-        return DigestUtil.md5Hex(JSON.toJSONBytes(joinPoint.getArgs()));
+        Object[] args = joinPoint.getArgs();
+        Object[] lightweightArgs = new Object[args.length];
+        for (int i = 0; i < args.length; i++) {
+            lightweightArgs[i] = lightweightArg(args[i]);
+        }
+        return DigestUtil.md5Hex(JSON.toJSONBytes(lightweightArgs));
+    }
+
+    private Object lightweightArg(Object arg) {
+        // MultipartFile 只提取可用于识别文件的轻量元数据，避免读取文件字节或输入流。
+        if (arg instanceof MultipartFile multipartFile) {
+            return lightweightMultipartFile(multipartFile);
+        }
+        // 集合参数逐项处理，应对 List<MultipartFile> 等批量上传场景。
+        if (arg instanceof Collection<?> collection) {
+            ArrayList<Object> result = new ArrayList<>(collection.size());
+            for (Object item : collection) {
+                result.add(lightweightArg(item));
+            }
+            return result;
+        }
+        // 数组参数通过反射读取，兼容对象数组和基本类型数组。
+        if (arg != null && arg.getClass().isArray()) {
+            int length = Array.getLength(arg);
+            ArrayList<Object> result = new ArrayList<>(length);
+            for (int i = 0; i < length; i++) {
+                result.add(lightweightArg(Array.get(arg, i)));
+            }
+            return result;
+        }
+        return arg;
+    }
+
+    private Map<String, Object> lightweightMultipartFile(MultipartFile file) {
+        // 使用 LinkedHashMap 保持字段顺序稳定，确保相同文件元数据得到一致的 MD5 输入。
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("name", file.getName());
+        result.put("originalFilename", file.getOriginalFilename());
+        result.put("contentType", file.getContentType());
+        result.put("size", file.getSize());
+        result.put("empty", file.isEmpty());
+        return result;
     }
 
 }

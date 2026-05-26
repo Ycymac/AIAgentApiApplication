@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ycy.aiapplication.knowledge.dao.mapper.KnowledgeChunkDOMapper">
+
+    <select id="findVisibleChunkIds" resultType="java.lang.String">
+            SELECT kc.id from knowledge_chunk kc
+            JOIN knowledge_document kd ON kc.doc_id=kd.id
+            JOIN knowledge_base kb ON kc.kb_id=kb.id
+            WHERE kc.id IN
+            <foreach collection="chunkIds" item= "chunkId" separator="," open="(" close=")">
+                #{chunkId}
+            </foreach>
+            AND
+                kc.enabled=true
+            AND
+                kc.deleted=false
+            AND
+                kd.enabled=true
+            AND
+                kd.deleted=false
+            AND
+                kd.status='success'
+            AND
+                kb.deleted=false
+
+    </select>
+
+</mapper>

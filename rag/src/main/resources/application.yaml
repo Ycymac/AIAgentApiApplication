@@ -24,12 +24,15 @@ aliyun:
   oss:
     endpoint: needed
     accessKeyId: needed
-    accessKeySecret: needed
+    accessKeySecret:  needed
     bucketName: needed
 
 
 
 mybatis-plus:
+  mapper-locations:
+    - classpath*:/mapper/**/*.xml
+    - classpath*:/com/ycy/aiapplication/**/*.xml
   configuration:
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
   global-config:
@@ -83,6 +86,7 @@ rag:
       vector-global:
         enabled: true
         top-k-multiplier: 3
+    strict-data-base-filter-use: false
   guidance:
     enabled: true
     max-options: 6
@@ -132,7 +136,7 @@ ai:
       - qwen3-rerank
   chat:
     default-provider: bailian
-    default-model: qwen3.5-flash
+    default-model: qwen3.6-plus
     bailian-fallback-enabled: true
     silicon-flow-fallback-enabled: true
     bailian-back-up-model: qwen-plus
@@ -140,7 +144,7 @@ ai:
     models:
       bailian_1: qwen3.5-flash
       bailian_2: qwen3.5-plus
-      siliconflow_1: Pro/zai-org/GLM-5
+      siliconflow_1: deepseek-ai/DeepSeek-V4-Flash
       siliconflow_2: Pro/deepseek-ai/DeepSeek-V3.2
   selection:
     failure-threshold: 2

@@ -191,7 +191,7 @@ public class FixedSizeTextChunker implements ChunkingStrategy {
                         if (src.charAt(j) == '\n') sawNewline = true;
                         j++;
                     }
-                    //获取当前富豪的前驱后继符号
+                    //获取当前符号的前驱后继符号
                     //不存在则使用空白字符替换
                     char prev = (i > 0) ? src.charAt(i - 1) : 0;
                     char next = (j < src.length()) ? src.charAt(j) : 0;
