@@ -1104,7 +1104,7 @@
 
 - `FirstPacketAwaiter`
   位置：`infrastructure-ai/src/main/java/com/ycy/aiapplication/infrastructure/ai/chat/toolkit/FirstPacketAwaiter.java`
-  作用：项目业务或通用支撑能力。
+  作用：流式路由首包探测等待器，使用 `CompletableFuture<Result>` 固化首个决定性事件，保证 first-wins 语义。
   方法展开：是
 
 - `OpenAIStyleSSEParser`
@@ -3238,46 +3238,44 @@
 
 位置：`infrastructure-ai/src/main/java/com/ycy/aiapplication/infrastructure/ai/chat/toolkit/FirstPacketAwaiter.java`
 
+维护指引：该类只负责首包探测结果等待，不负责缓冲事件回放；缓冲与提交逻辑仍在 `RoutingLLMService.ProbeBufferingCallback` 中。首包结果必须保持 first-wins：`markContent`、`markComplete`、`markError` 只能通过 `CompletableFuture.complete(Result.xxx())` 尝试完成同一个 `Result`，不要再拆成多个独立 `AtomicBoolean`/`AtomicReference` 组合状态，避免后续回调覆盖已确定的首包判定。
+
 - `public void markContent()`
   参数：无
   返回值：`void`
-  作用：执行该类对应的核心业务动作。
+  作用：收到正文或 thinking 增量时标记首包探测成功。
 - `public void markComplete()`
   参数：无
   返回值：`void`
-  作用：执行该类对应的核心业务动作。
+  作用：流在首个有效内容前完成时标记为无内容结果。
 - `public void markError(Throwable throwable)`
   参数：`Throwable throwable`
   返回值：`void`
-  作用：执行该类对应的核心业务动作。
-- `private void fireEventOnce()`
-  参数：无
-  返回值：`void`
-  作用：执行该类对应的核心业务动作。
+  作用：流在首包探测成功前失败时标记为错误结果。
 - `public Result await(long timeout, TimeUnit unit) throws InterruptedException`
   参数：`long timeout`；`TimeUnit unit`
   返回值：`Result`
-  作用：执行该类对应的核心业务动作。
+  作用：等待首个决定性探测结果；超时返回 `Result.timeout()`，中断继续向调用方抛出 `InterruptedException`。
 - `public static Result success()`
   参数：无
   返回值：`Result`
-  作用：执行该类对应的核心业务动作。
+  作用：创建首包成功结果。
 - `public static Result error(Throwable throwable)`
   参数：`Throwable throwable`
   返回值：`Result`
-  作用：执行该类对应的核心业务动作。
+  作用：创建首包错误结果。
 - `public static Result timeout()`
   参数：无
   返回值：`Result`
-  作用：执行该类对应的核心业务动作。
+  作用：创建首包超时结果。
 - `public static Result noContent()`
   参数：无
   返回值：`Result`
-  作用：执行该类对应的核心业务动作。
+  作用：创建流完成但没有首包内容的结果。
 - `public boolean isSuccess()`
   参数：无
   返回值：`boolean`
-  作用：执行该类对应的核心业务动作。
+  作用：判断首包探测是否成功。
 
 #### OpenAIStyleSSEParser
 

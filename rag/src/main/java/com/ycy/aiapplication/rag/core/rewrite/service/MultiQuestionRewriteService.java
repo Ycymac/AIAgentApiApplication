@@ -161,8 +161,20 @@ public class MultiQuestionRewriteService implements QueryRewriteService {
         try {
             // 移除可能存在的 Markdown 代码块标记
             String cleaned = LLMResponseCleaner.stripMarkdownCodeFence(raw);
-            //回答转换为json对象方便提取
-            JsonElement root = JsonParser.parseString(cleaned);
+            
+            // 使用宽松模式解析 JSON，容忍轻微格式错误
+            JsonElement root;
+            try {
+                root = JsonParser.parseString(cleaned);
+            } catch (com.google.gson.JsonSyntaxException e) {
+                log.warn("JSON 解析失败，尝试宽松模式 - raw={}", raw);
+                // 宽松模式：允许不规范的 JSON
+                com.google.gson.Gson gson = new com.google.gson.GsonBuilder()
+                    .setLenient()
+                    .create();
+                root = gson.fromJson(cleaned, JsonElement.class);
+            }
+            
             if (!root.isJsonObject()) {
                 return null;
             }

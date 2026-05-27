@@ -2,73 +2,55 @@ package com.ycy.aiapplication.infrastructure.ai.chat.toolkit;
 
 import lombok.Getter;
 
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.TimeoutException;
 
 /**
- * 首包等待器。
- * 在流式路由探测阶段用于等待当前模型返回首个有效事件。
+ * First packet awaiter used during stream routing probe.
  */
 public class FirstPacketAwaiter {
 
-    private final CountDownLatch latch = new CountDownLatch(1);
-    private final AtomicBoolean hasContent = new AtomicBoolean(false);
-    private final AtomicBoolean eventFired = new AtomicBoolean(false);
-    private final AtomicReference<Throwable> error = new AtomicReference<>();
+    private final CompletableFuture<Result> firstPacket = new CompletableFuture<>();
 
     /**
-     * 标记已收到有效内容。
+     * Mark that valid stream content has been received.
      */
     public void markContent() {
-        hasContent.set(true);
-        fireEventOnce();
+        firstPacket.complete(Result.success());
     }
 
     /**
-     * 标记流式过程正常完成。
+     * Mark that the stream completed before any valid content arrived.
      */
     public void markComplete() {
-        fireEventOnce();
+        firstPacket.complete(Result.noContent());
     }
 
     /**
-     * 标记流式过程出现异常。
+     * Mark that the stream failed before first packet probing succeeded.
      */
     public void markError(Throwable throwable) {
-        error.set(throwable);
-        fireEventOnce();
+        firstPacket.complete(Result.error(throwable));
     }
 
     /**
-     * 保证只触发一次首包结果事件。
-     */
-    private void fireEventOnce() {
-        if (eventFired.compareAndSet(false, true)) {
-            latch.countDown();
-        }
-    }
-
-    /**
-     * 在限定时间内等待首包探测结果。
+     * Wait for the first decisive probe result within the given timeout.
      */
     public Result await(long timeout, TimeUnit unit) throws InterruptedException {
-        boolean completed = latch.await(timeout, unit);
-        if (error.get() != null) {
-            return Result.error(error.get());
-        }
-        if (!completed) {
+        try {
+            return firstPacket.get(timeout, unit);
+        } catch (TimeoutException ex) {
             return Result.timeout();
+        } catch (ExecutionException ex) {
+            Throwable cause = ex.getCause() == null ? ex : ex.getCause();
+            return Result.error(cause);
         }
-        if (!hasContent.get()) {
-            return Result.noContent();
-        }
-        return Result.success();
     }
 
     /**
-     * 首包等待结果。
+     * First packet probe result.
      */
     @Getter
     public static class Result {
@@ -84,35 +66,35 @@ public class FirstPacketAwaiter {
         }
 
         /**
-         * 创建成功结果。
+         * Create a success result.
          */
         public static Result success() {
             return new Result(Type.SUCCESS, null);
         }
 
         /**
-         * 创建异常结果。
+         * Create an error result.
          */
         public static Result error(Throwable throwable) {
             return new Result(Type.ERROR, throwable);
         }
 
         /**
-         * 创建超时结果。
+         * Create a timeout result.
          */
         public static Result timeout() {
             return new Result(Type.TIMEOUT, null);
         }
 
         /**
-         * 创建无内容结果。
+         * Create a no-content result.
          */
         public static Result noContent() {
             return new Result(Type.NO_CONTENT, null);
         }
 
         /**
-         * 判断当前结果是否为成功。
+         * Return whether this result indicates a successful first packet.
          */
         public boolean isSuccess() {
             return type == Type.SUCCESS;
