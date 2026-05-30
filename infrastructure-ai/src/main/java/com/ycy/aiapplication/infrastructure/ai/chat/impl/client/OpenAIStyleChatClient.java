@@ -13,6 +13,7 @@ import com.ycy.aiapplication.infrastructure.ai.chat.toolkit.OpenAIStyleSSEParser
 import com.ycy.aiapplication.infrastructure.ai.chat.toolkit.StreamAsyncExecutor;
 import com.ycy.aiapplication.infrastructure.ai.config.AIModelProperties;
 import com.ycy.aiapplication.infrastructure.ai.enums.ModelCapability;
+import com.ycy.aiapplication.infrastructure.ai.enums.ModelProvider;
 import com.ycy.aiapplication.infrastructure.ai.http.HttpMediaTypes;
 import com.ycy.aiapplication.infrastructure.ai.http.ModelClientErrorType;
 import com.ycy.aiapplication.infrastructure.ai.http.ModelClientException;
@@ -26,6 +27,8 @@ import okhttp3.RequestBody;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
 import okio.BufferedSource;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.io.IOException;
@@ -35,29 +38,28 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * 抽象 OpenAI 风格聊天客户端。
- * 负责复用同步请求、流式请求、消息序列化和通用响应解析逻辑。
+ * 统一的 OpenAI 风格聊天客户端。
+ * <p>
+ * 请求协议、SSE 解析和响应解析保持一致，provider 只用于解析平台 URL、API Key 和少量参数兼容。
  */
 @Slf4j
-public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
+@Service
+public class OpenAIStyleChatClient implements ChatClient {
 
-    protected final AIModelProperties properties;
-    protected final OkHttpClient httpClient;
-    protected final Executor streamExecutor;
-    protected final Gson gson = new Gson();
+    private final AIModelProperties properties;
+    private final OkHttpClient httpClient;
+    private final Executor streamExecutor;
+    private final Gson gson = new Gson();
 
-    /**
-     * 初始化通用聊天客户端所需的基础依赖。
-     */
-    protected AbstractOpenAIStyleChatClient(AIModelProperties properties, OkHttpClient httpClient, Executor streamExecutor) {
+    public OpenAIStyleChatClient(
+            AIModelProperties properties,
+            OkHttpClient httpClient,
+            @Qualifier("chatStreamExecutor") Executor streamExecutor) {
         this.properties = properties;
         this.httpClient = httpClient;
         this.streamExecutor = streamExecutor;
     }
 
-    /**
-     * 发起一次非流式聊天调用，并在失败时统一转换为模型客户端异常。
-     */
     @Override
     public String chat(ChatRequest request, ModelTarget target) {
         Request httpRequest = buildChatRequest(request, target, false);
@@ -65,56 +67,51 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
             if (!response.isSuccessful()) {
                 String body = readBody(response.body());
                 throw new ModelClientException(
-                        provider() + " chat failed: HTTP " + response.code() + " - " + body,
+                        target.provider() + " chat failed: HTTP " + response.code() + " - " + body,
                         classifyStatus(response.code()),
                         response.code()
                 );
             }
-            return extractChatContent(parseJsonBody(response.body()));
+            return extractChatContent(parseJsonBody(response.body(), target));
         } catch (IOException ex) {
-            throw new ModelClientException(provider() + " chat failed: " + ex.getMessage(), ModelClientErrorType.NETWORK_ERROR, null, ex);
+            throw new ModelClientException(target.provider() + " chat failed: " + ex.getMessage(), ModelClientErrorType.NETWORK_ERROR, null, ex);
         }
     }
 
-    /**
-     * 启动一次流式聊天调用，并把真正的读取逻辑投递到专属流式线程池。
-     * @param callback 业务传入的真实回调
-     */
     @Override
     public StreamCancellationHandle streamChat(ChatRequest request, StreamCallback callback, ModelTarget target) {
         Call call = httpClient.newCall(buildChatRequest(request, target, true));
-        //将读取任务放入专用线程池执行并立即返回一个StreamCancellationHandle
         return StreamAsyncExecutor.submit(
                 streamExecutor,
                 call,
                 callback,
-                cancelled -> doStream(call, callback, cancelled, Boolean.TRUE.equals(request.getThinking()))
+                cancelled -> doStream(call, callback, cancelled, Boolean.TRUE.equals(request.getThinking()), target)
         );
     }
 
-    /**
-     * 消费上游 SSE 响应，并把内容片段与 thinking 片段实时转发给下游回调。
-     */
-    protected void doStream(Call call, StreamCallback callback, AtomicBoolean cancelled, boolean reasoningEnabled) {
-        //读取http响应数据
+    private void doStream(
+            Call call,
+            StreamCallback callback,
+            AtomicBoolean cancelled,
+            boolean reasoningEnabled,
+            ModelTarget target) {
         try (Response response = call.execute()) {
             if (!response.isSuccessful()) {
                 String body = readBody(response.body());
                 throw new ModelClientException(
-                        provider() + " stream chat failed: HTTP " + response.code() + " - " + body,
+                        target.provider() + " stream chat failed: HTTP " + response.code() + " - " + body,
                         classifyStatus(response.code()),
                         response.code()
                 );
             }
             ResponseBody body = response.body();
             if (body == null) {
-                throw new ModelClientException(provider() + " stream response is empty", ModelClientErrorType.INVALID_RESPONSE, null);
+                throw new ModelClientException(target.provider() + " stream response is empty", ModelClientErrorType.INVALID_RESPONSE, null);
             }
+
             BufferedSource source = body.source();
             boolean completed = false;
-            //未被取消，持续读入
             while (!cancelled.get()) {
-                // 逐行读取 SSE 帧，避免把整段响应一次性读入内存。
                 String line = source.readUtf8Line();
                 if (line == null) {
                     break;
@@ -122,7 +119,7 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
                 if (line.isBlank()) {
                     continue;
                 }
-                // 统一按 OpenAI 风格 delta 结构解析 content / reasoning 事件。
+
                 OpenAIStyleSSEParser.ParsedEvent event = OpenAIStyleSSEParser.parseLine(line, reasoningEnabled);
                 if (event.hasReasoning()) {
                     callback.onThinking(event.getReasoning());
@@ -137,17 +134,14 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
                 }
             }
             if (!cancelled.get() && !completed) {
-                throw new ModelClientException(provider() + " stream response terminated unexpectedly", ModelClientErrorType.INVALID_RESPONSE, null);
+                throw new ModelClientException(target.provider() + " stream response terminated unexpectedly", ModelClientErrorType.INVALID_RESPONSE, null);
             }
         } catch (Exception ex) {
             callback.onError(ex);
         }
     }
 
-    /**
-     * 构造同步或流式聊天 HTTP 请求。
-     */
-    protected Request buildChatRequest(ChatRequest request, ModelTarget target, boolean stream) {
+    private Request buildChatRequest(ChatRequest request, ModelTarget target, boolean stream) {
         JsonObject requestBody = buildRequestBody(request, target, stream);
         Request.Builder builder = new Request.Builder()
                 .url(resolveUrl(target))
@@ -160,10 +154,7 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
         return builder.build();
     }
 
-    /**
-     * 组装标准 OpenAI 风格请求体，并透传常见生成参数。
-     */
-    protected JsonObject buildRequestBody(ChatRequest request, ModelTarget target, boolean stream) {
+    private JsonObject buildRequestBody(ChatRequest request, ModelTarget target, boolean stream) {
         JsonObject requestBody = new JsonObject();
         requestBody.addProperty("model", target.model());
         requestBody.add("messages", buildMessages(request.getMessages()));
@@ -182,23 +173,22 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
         if (request.getMaxTokens() != null) {
             requestBody.addProperty("max_tokens", request.getMaxTokens());
         }
-        applyThinking(requestBody, request, stream);
+        applyThinking(requestBody, request, target);
         return requestBody;
     }
 
-    /**
-     * 按平台约定向请求体注入 reasoning / thinking 开关。
-     */
-    protected void applyThinking(JsonObject requestBody, ChatRequest request, boolean stream) {
-        if (Boolean.TRUE.equals(request.getThinking())) {
+    private void applyThinking(JsonObject requestBody, ChatRequest request, ModelTarget target) {
+        boolean thinking = Boolean.TRUE.equals(request.getThinking());
+        if (ModelProvider.BAI_LIAN.matches(target.provider())) {
+            requestBody.addProperty("enable_thinking", thinking);
+            return;
+        }
+        if (thinking) {
             requestBody.addProperty("enable_thinking", true);
         }
     }
 
-    /**
-     * 把统一消息对象转换为上游模型接口要求的 messages 数组。
-     */
-    protected JsonArray buildMessages(List<ChatMessage> messages) {
+    private JsonArray buildMessages(List<ChatMessage> messages) {
         JsonArray array = new JsonArray();
         if (CollUtil.isEmpty(messages)) {
             return array;
@@ -212,10 +202,7 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
         return array;
     }
 
-    /**
-     * 将内部消息角色映射为 OpenAI 风格 role 字段。
-     */
-    protected String toRole(ChatMessage.Role role) {
+    private String toRole(ChatMessage.Role role) {
         return switch (role) {
             case SYSTEM -> "system";
             case USER -> "user";
@@ -223,75 +210,65 @@ public abstract class AbstractOpenAIStyleChatClient implements ChatClient {
         };
     }
 
-    /**
-     * 根据 provider 解析最终聊天接口地址。
-     */
-    protected String resolveUrl(ModelTarget target) {
-        if ("bailian".equals(target.provider())) {
+    private String resolveUrl(ModelTarget target) {
+        if (ModelProvider.BAI_LIAN.matches(target.provider())) {
             return ModelURLResolver.resolveBaiLianUrl(properties.getProviders().getBailian(), ModelCapability.CHAT);
         }
-        return ModelURLResolver.resolveSiliconFlowUrl(properties.getProviders().getSiliconflow(), ModelCapability.CHAT);
+        if (ModelProvider.SILICON_FLOW.matches(target.provider())) {
+            return ModelURLResolver.resolveSiliconFlowUrl(properties.getProviders().getSiliconflow(), ModelCapability.CHAT);
+        }
+        throw new IllegalStateException("Unsupported chat provider: " + target.provider());
     }
 
-    /**
-     * 读取指定平台的 API Key，并在缺失时快速失败。
-     */
-    protected String resolveApiKey(String provider) {
-        String apiKey = "bailian".equals(provider)
-                ? properties.getProviders().getBailian().getApiKey()
-                : properties.getProviders().getSiliconflow().getApiKey();
+    private String resolveApiKey(String provider) {
+        String apiKey;
+        if (ModelProvider.BAI_LIAN.matches(provider)) {
+            apiKey = properties.getProviders().getBailian().getApiKey();
+        } else if (ModelProvider.SILICON_FLOW.matches(provider)) {
+            apiKey = properties.getProviders().getSiliconflow().getApiKey();
+        } else {
+            throw new IllegalStateException("Unsupported chat provider: " + provider);
+        }
         if (!StringUtils.hasText(apiKey)) {
             throw new IllegalStateException(provider + " apiKey is missing");
         }
         return apiKey;
     }
 
-    /**
-     * 解析非流式 JSON 响应体。
-     */
-    protected JsonObject parseJsonBody(ResponseBody body) throws IOException {
+    private JsonObject parseJsonBody(ResponseBody body, ModelTarget target) throws IOException {
         if (body == null) {
-            throw new ModelClientException(provider() + " response is empty", ModelClientErrorType.INVALID_RESPONSE, null);
+            throw new ModelClientException(target.provider() + " response is empty", ModelClientErrorType.INVALID_RESPONSE, null);
         }
         return gson.fromJson(body.string(), JsonObject.class);
     }
 
-    /**
-     * 读取失败响应体，便于把上游错误透传到日志和异常消息中。
-     */
-    protected String readBody(ResponseBody body) throws IOException {
+    private String readBody(ResponseBody body) throws IOException {
         if (body == null) {
             return "";
         }
         return new String(body.bytes(), StandardCharsets.UTF_8);
     }
 
-    /**
-     * 从标准 choices[0].message.content 结构中提取最终回复文本。
-     */
-    protected String extractChatContent(JsonObject root) {
+    private String extractChatContent(JsonObject root) {
         if (root == null || !root.has("choices")) {
-            throw new ModelClientException(provider() + " response missing choices", ModelClientErrorType.INVALID_RESPONSE, null);
+            throw new ModelClientException("chat response missing choices", ModelClientErrorType.INVALID_RESPONSE, null);
         }
         JsonArray choices = root.getAsJsonArray("choices");
         if (choices == null || choices.isEmpty()) {
-            throw new ModelClientException(provider() + " response choices is empty", ModelClientErrorType.INVALID_RESPONSE, null);
+            throw new ModelClientException("chat response choices is empty", ModelClientErrorType.INVALID_RESPONSE, null);
         }
         JsonObject choice = choices.get(0).getAsJsonObject();
         if (choice == null || !choice.has("message")) {
-            throw new ModelClientException(provider() + " response missing message", ModelClientErrorType.INVALID_RESPONSE, null);
+            throw new ModelClientException("chat response missing message", ModelClientErrorType.INVALID_RESPONSE, null);
         }
         JsonObject message = choice.getAsJsonObject("message");
         if (message == null || !message.has("content") || message.get("content").isJsonNull()) {
-            throw new ModelClientException(provider() + " response missing content", ModelClientErrorType.INVALID_RESPONSE, null);
+            throw new ModelClientException("chat response missing content", ModelClientErrorType.INVALID_RESPONSE, null);
         }
         return message.get("content").getAsString();
     }
 
-    /**
-     * 根据 HTTP 状态码归类模型请求失败类型。
-     */
-    protected ModelClientErrorType classifyStatus(int statusCode) {
+    private ModelClientErrorType classifyStatus(int statusCode) {
         if (statusCode == 401 || statusCode == 403) {
             return ModelClientErrorType.UNAUTHORIZED;
         }

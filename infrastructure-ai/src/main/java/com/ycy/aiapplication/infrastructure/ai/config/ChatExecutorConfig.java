@@ -2,6 +2,7 @@ package com.ycy.aiapplication.infrastructure.ai.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import reactor.util.annotation.NonNull;
 
 import java.util.concurrent.Executor;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -13,17 +14,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Configuration
 public class ChatExecutorConfig {
 
-    @Bean("bailianChatStreamExecutor")
-    public Executor bailianChatStreamExecutor(AIModelProperties properties) {
-        return buildExecutor(properties, "bailian-chat-stream-");
-    }
-
-    @Bean("siliconFlowChatStreamExecutor")
-    public Executor siliconFlowChatStreamExecutor(AIModelProperties properties) {
-        return buildExecutor(properties, "siliconflow-chat-stream-");
-    }
-
-    private Executor buildExecutor(AIModelProperties properties, String prefix) {
+    @Bean("chatStreamExecutor")
+    public Executor chatStreamExecutor(AIModelProperties properties) {
         AIModelProperties.Stream stream = properties.getStream();
         int coreSize = stream.getExecutorCoreSize() == null || stream.getExecutorCoreSize() <= 0 ? 2 : stream.getExecutorCoreSize();
         int maxSize = stream.getExecutorMaxSize() == null || stream.getExecutorMaxSize() <= 0 ? Math.max(4, coreSize) : Math.max(coreSize, stream.getExecutorMaxSize());
@@ -34,7 +26,7 @@ public class ChatExecutorConfig {
                 60L,
                 TimeUnit.SECONDS,
                 new LinkedBlockingQueue<>(queueCapacity),
-                new NamedThreadFactory(prefix),
+                new NamedThreadFactory("chat-stream-"),
                 new ThreadPoolExecutor.AbortPolicy()
         );
     }
@@ -48,7 +40,7 @@ public class ChatExecutorConfig {
         }
 
         @Override
-        public Thread newThread(Runnable runnable) {
+        public Thread newThread(@NonNull Runnable runnable) {
             Thread thread = new Thread(runnable);
             thread.setName(prefix + sequence.getAndIncrement());
             return thread;

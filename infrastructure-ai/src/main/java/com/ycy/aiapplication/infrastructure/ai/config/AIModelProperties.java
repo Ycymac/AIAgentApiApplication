@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 统一的AI配置类
+ * AI 模型统一配置。
  */
 @Data
 @Configuration
@@ -81,46 +81,56 @@ public class AIModelProperties {
 
         private Integer dimension = 1024;
 
-        private Map<String, String> models /*= defaultEmbeddingModels()*/;
-
-/*        private static Map<String, String> defaultEmbeddingModels() {
-            Map<String, String> models = new LinkedHashMap<>();
-            models.put("bailian", "text-embedding-v4");
-            models.put("siliconflow", "Qwen/Qwen3-Embedding-0.6B");
-            return models;
-        }*/
+        private Map<String, String> models;
     }
 
     /**
-     * 双平台聊天配置
-     * 使用平台内降级策略
-     * 每个平台有两种主流聊天模型
-     * 同时有一个稳定版本的兜底模型用于出现模型不可用时进行兜底
+     * 聊天模型配置。
+     * <p>
+     * models 是用户可选模型；backupModels 是系统隐藏兜底模型。
      */
     @Data
     public static class Chat {
         private String defaultProvider = "bailian";
 
         private String defaultModel = "qwen3.6-plus";
-        //百炼平台内降级
-        private Boolean bailianFallbackEnabled = true;
-
-        private Boolean siliconFlowFallbackEnabled = true;
-
-        private String bailianBackUpModel = "qwen-plus";
-
-        private String siliconFlowBackUpModel = "deepseek-ai/DeepSeek-V3.2";
 
         private Map<String, String> models = defaultChatModels();
 
+        private List<BackupModel> backupModels = defaultBackupModels();
+
         private static Map<String, String> defaultChatModels() {
             Map<String, String> models = new LinkedHashMap<>();
-            //可供用于选择的模型
             models.put("bailian_1", "qwen3.6-plus");
             models.put("bailian_2", "qwen3.5-plus");
-            models.put("siliconflow_1", "Pro/zai-org/GLM-5");
+            models.put("siliconflow_1", "deepseek-ai/DeepSeek-V4-Flash");
             models.put("siliconflow_2", "Pro/deepseek-ai/DeepSeek-V3.2");
             return models;
+        }
+
+        private static List<BackupModel> defaultBackupModels() {
+            return List.of(
+                    new BackupModel("bailian_backup", "bailian", "qwen-plus"),
+                    new BackupModel("siliconflow_backup", "siliconflow", "deepseek-ai/DeepSeek-V3.2")
+            );
+        }
+
+        @Data
+        public static class BackupModel {
+            private String id;
+
+            private String provider;
+
+            private String model;
+
+            public BackupModel() {
+            }
+
+            public BackupModel(String id, String provider, String model) {
+                this.id = id;
+                this.provider = provider;
+                this.model = model;
+            }
         }
     }
 
