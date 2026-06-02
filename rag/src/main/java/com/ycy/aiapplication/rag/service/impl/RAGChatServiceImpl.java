@@ -20,6 +20,7 @@ import com.ycy.aiapplication.rag.core.prompt.PromptTemplateLoader;
 import com.ycy.aiapplication.rag.core.prompt.RAGPromptService;
 import com.ycy.aiapplication.rag.core.retrieve.RetrievalEngine;
 import com.ycy.aiapplication.rag.core.retrieve.common.RetrievalContext;
+import com.ycy.aiapplication.rag.core.retrieve.common.SearchContext;
 import com.ycy.aiapplication.rag.core.rewrite.common.RewriteResult;
 import com.ycy.aiapplication.rag.core.rewrite.service.QueryRewriteService;
 import com.ycy.aiapplication.rag.service.RAGChatService;
@@ -114,7 +115,15 @@ public class RAGChatServiceImpl implements RAGChatService {
         }
 
         // 混合检索阶段会汇总知识库、意图分片等上下文，供后续 Prompt 构造使用。
-        RetrievalContext ctx = retrievalEngine.retrieve(subIntents, DEFAULT_TOP_K);
+        SearchContext searchContext = SearchContext.builder()
+                .originalQuestion(question)
+                .rewrittenQuestion(rewriteResult.rewrittenQuestion())
+                .subQuestions(subIntents.stream().map(SubQuestionIntent::subQuestion).toList())
+                .intents(subIntents)
+                .topK(DEFAULT_TOP_K)
+                .build();
+
+        RetrievalContext ctx = retrievalEngine.retrieve(searchContext);
         if (ctx.isEmpty()) {
             String emptyReply = "未检索到与问题相关的文档内容。";
             callback.onContent(emptyReply);

@@ -4,7 +4,6 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import com.ycy.aiapplication.framework.convention.RetrievedChunk;
 import com.ycy.aiapplication.infrastructure.ai.rerank.RerankClient;
-import com.ycy.aiapplication.rag.core.intent.common.SubQuestionIntent;
 import com.ycy.aiapplication.rag.core.retrieve.channel.SearchChannel;
 import com.ycy.aiapplication.rag.core.retrieve.channel.SearchChannelResult;
 import com.ycy.aiapplication.rag.core.retrieve.channel.impls.AbstractVectorSearchChannel;
@@ -43,22 +42,12 @@ public class RetrievalEngine {
 
     /**
      * 执行一次完整的检索流程。
-     *
-     * @param subIntents 子问题意图列表。每个元素已经明确当前子问题应走定向检索、全库兜底还是系统问答。
-     * @param topK 检索基准返回条数。具体通道会结合自身配置对该值进行放大。
      * @return 检索上下文。若没有拿到有效知识库分块，则返回空上下文。
      */
-    public RetrievalContext retrieve(List<SubQuestionIntent> subIntents, int topK) {
-        if (CollUtil.isEmpty(subIntents)) {
+    public RetrievalContext retrieve(SearchContext context) {
+        if (CollUtil.isEmpty(context.getIntents())) {
             return RetrievalContext.empty();
         }
-
-        // 将意图识别输出转换为通道可直接消费的统一检索上下文。
-        SearchContext context = SearchContext.builder()
-                .subQuestions(subIntents.stream().map(SubQuestionIntent::subQuestion).toList())
-                .intents(subIntents)
-                .topK(topK)
-                .build();
 
         // 按通道优先级执行检索，仅保留真正返回了分块结果的通道。
         List<SearchChannelResult> results = searchChannels.stream()

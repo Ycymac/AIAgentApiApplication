@@ -4,6 +4,7 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -95,25 +96,31 @@ public class AIModelProperties {
 
         private String defaultModel = "qwen3.6-plus";
 
-        private Map<String, String> models = defaultChatModels();
+        private Map<String, String> models = new LinkedHashMap<>();
 
-        private List<BackupModel> backupModels = defaultBackupModels();
+        private List<BackupModel> backupModels = new ArrayList<>();
 
-        private static Map<String, String> defaultChatModels() {
-            Map<String, String> models = new LinkedHashMap<>();
-            models.put("bailian_1", "qwen3.6-plus");
-            models.put("bailian_2", "qwen3.5-plus");
-            models.put("siliconflow_1", "deepseek-ai/DeepSeek-V4-Flash");
-            models.put("siliconflow_2", "Pro/deepseek-ai/DeepSeek-V3.2");
+/*        private Map<String, String> getModels() {
+
+            if (models == null || models.isEmpty()) {
+                Map<String, String> defaultModels = new LinkedHashMap<>();
+                defaultModels.put("bailian_1", "qwen3.6-plus");
+                defaultModels.put("bailian_2", "qwen3.5-plus");
+                defaultModels.put("siliconflow_1", "deepseek-ai/DeepSeek-V4-Flash");
+                defaultModels.put("siliconflow_2", "Pro/deepseek-ai/DeepSeek-V3.2");
+                return defaultModels;
+            }
             return models;
         }
 
-        private static List<BackupModel> defaultBackupModels() {
-            return List.of(
-                    new BackupModel("bailian_backup", "bailian", "qwen-plus"),
-                    new BackupModel("siliconflow_backup", "siliconflow", "deepseek-ai/DeepSeek-V3.2")
-            );
-        }
+        private List<BackupModel> getBackupModels() {
+            if (backupModels == null || backupModels.isEmpty())
+                return List.of(
+                        new BackupModel("bailian_backup", "bailian", "qwen-plus"),
+                        new BackupModel("siliconflow_backup", "siliconflow", "deepseek-ai/DeepSeek-V3.2")
+                );
+            return backupModels;
+        }*/
 
         @Data
         public static class BackupModel {
