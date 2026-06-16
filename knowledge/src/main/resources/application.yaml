@@ -71,7 +71,7 @@ ai:
     fallback-enabled: true
     fallback-order:
       - siliconflow
-    batch-size: 16
+    batch-size: 10
     dimension: 1024
     models:
       bailian: text-embedding-v4
@@ -83,7 +83,7 @@ ai:
       - qwen3-rerank
   chat:
     default-provider: bailian
-    default-model: qwen3.7-plus
+    default-model: qwen3.6-flash
     models:
       bailian_1: qwen3.6-flash
       bailian_2: qwen3.7-plus
