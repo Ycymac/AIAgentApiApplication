@@ -158,3 +158,8 @@ ai:
     executor-max-size: 4
     executor-queue-capacity: 128
     message-chunk-size: 5
+app:
+  rag-eval:
+    enabled: true
+    log-path: logs/rag-eval.jsonl
+    include-context-text: true

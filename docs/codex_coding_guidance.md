@@ -8,7 +8,7 @@
 | --- | --- |
 | 项目类型 | Java 17、Spring Boot 3 多模块 Maven 项目 |
 | 父工程 | `AIApplication`，根 `pom.xml` 聚合 6 个模块 |
-| 文档快照 | 2026-05-26，基于当前工作区源码和 Git 状态生成 |
+| 文档快照 | 2026-06-03，基于当前工作区源码和 Git 状态生成 |
 | 文档范围 | 生产源码、前后端交互接口、业务类、工具类、实体信息类、配置类、数据访问类 |
 | 排除范围 | `target`、`.idea`、`generated-pets`、第三方依赖、构建缓存、getter/setter、构造器、Lombok 自动生成方法 |
 
@@ -34,8 +34,8 @@
 | `agent` | 面试 Agent 模块 | AI 面试题生成、答案评估、报告生成和面试记录访问。 | 38 | 配置类:5<br>常量/枚举类:4<br>实体信息类:22<br>接口入口类:2<br>数据访问类:1<br>业务类:4 |
 | `framework` | 通用框架模块 | 统一响应、异常体系、用户上下文、幂等切面、SSE 发送和 MQ 基础对象。 | 26 | 配置类:1<br>实体信息类:13<br>工具类:2<br>异常类:4<br>注解类:2<br>业务类:2<br>常量/枚举类:1<br>接口入口类:1 |
 | `knowledge` | 知识库模块 | 知识库、文档、Chunk 管理，文档解析、分块、向量写入与异步分块消息。 | 69 | 业务类:17<br>工具类:10<br>实体信息类:23<br>常量/枚举类:5<br>配置类:6<br>接口入口类:3<br>数据访问类:4<br>异常类:1 |
-| `infrastructure-ai` | AI 基础设施模块 | LLM、Embedding、Rerank、模型路由、模型健康、OpenAI 风格 SSE 解析和 HTTP 调用能力。 | 41 | 常量/枚举类:3<br>业务类:16<br>实体信息类:7<br>工具类:10<br>配置类:4<br>异常类:1 |
-| `rag` | RAG 问答模块 | RAG 流式问答、会话记忆、问题改写、意图识别、检索通道、提示词和会话管理。 | 103 | 配置类:11<br>常量/枚举类:3<br>接口入口类:3<br>实体信息类:32<br>业务类:42<br>工具类:7<br>数据访问类:5 |
+| `infrastructure-ai` | AI 基础设施模块 | LLM、Embedding、Rerank、模型路由、模型健康、OpenAI 风格 SSE 解析和 HTTP 调用能力。 | 39 | 常量/枚举类:3<br>业务类:14<br>实体信息类:7<br>工具类:10<br>配置类:4<br>异常类:1 |
+| `rag` | RAG 问答模块 | RAG 流式问答、会话记忆、问题改写、意图识别、检索通道、提示词、会话管理和检索评测/可观测。 | 110 | 配置类:11<br>常量/枚举类:3<br>接口入口类:4<br>实体信息类:33<br>业务类:43<br>工具类:9<br>数据访问类:5<br>注解类:0 |
 
 ## 3. 前后端交互接口指引
 
@@ -95,6 +95,9 @@
 | rag | `IntentNodeController` | POST | `/api/rag/intent-node/batch/enable` | IntentNodeBatchRequest requestParam | `Result<Void>` | 批量启用意图节点 | 幂等控制 |
 | rag | `IntentNodeController` | POST | `/api/rag/intent-node/batch/disable` | IntentNodeBatchRequest requestParam | `Result<Void>` | 批量停用意图节点 | 幂等控制 |
 | rag | `IntentNodeController` | POST | `/api/rag/intent-node/batch/delete` | IntentNodeBatchRequest requestParam | `Result<Void>` | 批量删除意图节点 | 幂等控制 |
+| rag | `RagEvalController` | GET | `/api/rag/eval/retrieve` | question, topK?, includeContexts?, traceId?, X-Eval-Run-Id?, X-Eval-Query-Id? | `Result<RagEvalResponse>` | 复跑检索全链路并返回结构化诊断 | 仅 `app.rag-eval.enabled=true` 时注册；免登录（JWT 拦截器放行 `/api/rag/eval/**`） |
+| rag | `RagEvalController` | POST | `/api/rag/eval/datasets/chunk-probes` | RagEvalChunkProbeRequest（kbId, docIds?, chunkIds?, limit?, questionsPerChunk?, minChars?, seed?） | `Result<RagEvalChunkProbeResponse>` | 从 `knowledge_chunk` 生成 chunk 级评测数据集 | 仅 `app.rag-eval.enabled=true` 时注册；免登录 |
+| rag | `RagEvalStreamController` | GET | `/rag/eval/chat-stream` | question, topK?, deepThinking?, traceId?, X-Eval-Run-Id?, X-Eval-Query-Id? | `SseEmitter`（meta/retrieval/message/finish/done 事件） | 流式评测：复跑全链路 + LLM 流式生成，上报检索结果与各阶段耗时 | 仅 `app.rag-eval.enabled=true` 时注册；**需登录**（路径在 `/api/rag/eval/**` 放行范围外） |
 
 ## 4. 代码文件与类指引
 
@@ -1010,24 +1013,14 @@
 
 **<span style="color:#2e7d32">业务类</span>**
 
-- `AbstractOpenAIStyleChatClient`
-  位置：`infrastructure-ai/src/main/java/com/ycy/aiapplication/infrastructure/ai/chat/impl/client/AbstractOpenAIStyleChatClient.java`
-  作用：封装大模型聊天客户端、模型选择、流式解析和回退调用。
-  方法展开：是
-
-- `BaiLianChatClient`
-  位置：`infrastructure-ai/src/main/java/com/ycy/aiapplication/infrastructure/ai/chat/impl/client/BaiLianChatClient.java`
-  作用：封装大模型聊天客户端、模型选择、流式解析和回退调用。
-  方法展开：是
-
-- `SiliconFlowChatClient`
-  位置：`infrastructure-ai/src/main/java/com/ycy/aiapplication/infrastructure/ai/chat/impl/client/SiliconFlowChatClient.java`
-  作用：封装大模型聊天客户端、模型选择、流式解析和回退调用。
+- `OpenAIStyleChatClient`
+  位置：`infrastructure-ai/src/main/java/com/ycy/aiapplication/infrastructure/ai/chat/impl/client/OpenAIStyleChatClient.java`
+  作用：统一的 OpenAI 风格聊天客户端，承载同步/流式调用、请求构建、思考开关与 SSE 解析（已整合原 BaiLian/SiliconFlow 专用客户端）。
   方法展开：是
 
 - `RoutingLLMService`
   位置：`infrastructure-ai/src/main/java/com/ycy/aiapplication/infrastructure/ai/chat/impl/service/RoutingLLMService.java`
-  作用：封装大模型聊天客户端、模型选择、流式解析和回退调用。
+  作用：封装大模型路由、首包探测、跨平台兜底模型降级和流式回调。
   方法展开：是
 
 - `ChatClient`
@@ -1244,6 +1237,16 @@
   作用：提供前后端 HTTP 接口入口，转发请求到业务服务。
   方法展开：是
 
+- `RagEvalController`
+  位置：`rag/src/main/java/com/ycy/aiapplication/rag/eval/controller/RagEvalController.java`
+  作用：检索评测入口，暴露 `GET /api/rag/eval/retrieve` 与 `POST /api/rag/eval/datasets/chunk-probes`；仅 `app.rag-eval.enabled=true` 时注册。
+  方法展开：是
+
+- `RagEvalStreamController`
+  位置：`rag/src/main/java/com/ycy/aiapplication/rag/eval/controller/RagEvalStreamController.java`
+  作用：流式评测入口，暴露 `GET /rag/eval/chat-stream`（SSE，需登录），复跑全链路并 LLM 流式生成；仅 `app.rag-eval.enabled=true` 时注册。
+  方法展开：是
+
 **<span style="color:#2e7d32">业务类</span>**
 
 - `GuidanceDecision`
@@ -1456,6 +1459,31 @@
   作用：编排 RAG 流式问答、任务停止和对话处理。
   方法展开：是
 
+- `RagEvalService`
+  位置：`rag/src/main/java/com/ycy/aiapplication/rag/eval/service/RagEvalService.java`
+  作用：检索评测服务接口，复跑检索全链路并输出结构化诊断。
+  方法展开：是
+
+- `RagEvalServiceImpl`
+  位置：`rag/src/main/java/com/ycy/aiapplication/rag/eval/service/impl/RagEvalServiceImpl.java`
+  作用：复跑「重写→意图→引导→检索→Prompt」全链路（不做 LLM 生成），关联 chunk/文档元数据并记录各阶段耗时。
+  方法展开：是
+
+- `RagEvalStreamService` / `RagEvalStreamServiceImpl`
+  位置：`rag/src/main/java/com/ycy/aiapplication/rag/eval/service/RagEvalStreamService.java`、`.../service/impl/RagEvalStreamServiceImpl.java`
+  作用：流式评测服务，复跑「重写→意图→引导→检索→Prompt」后调用 `LLMService` 流式生成，逐事件上报 meta/retrieval/message/finish/done 与各阶段耗时；为生产 `/rag/v3/chat` 的单轮简化版（不加载会话记忆、不注入 history）。
+  方法展开：是
+
+- `RagEvalChunkMetadataResolver`
+  位置：`rag/src/main/java/com/ycy/aiapplication/rag/eval/service/RagEvalChunkMetadataResolver.java`
+  作用：将检索命中的 chunk 关联回 `knowledge_chunk`/`knowledge_document` 元数据（docId/docName 等），构建 ChunkView/ChannelView；并支撑 chunk 数据集生成。
+  方法展开：是
+
+- `RagEvalStreamCallback`
+  位置：`rag/src/main/java/com/ycy/aiapplication/rag/eval/stream/RagEvalStreamCallback.java`
+  作用：流式评测的 `StreamCallback` 实现，转发 LLM 内容/思考为 SSE message 事件，完成时写 finish 事件与 JSONL 追踪（含 answerCompleteMs）。
+  方法展开：是
+
 **<span style="color:#6a1b9a">工具类</span>**
 
 - `IntentResolver`
@@ -1491,6 +1519,21 @@
 - `StreamTaskManager`
   位置：`rag/src/main/java/com/ycy/aiapplication/rag/stream/StreamTaskManager.java`
   作用：封装 SSE 发送、流式回调、任务取消或异步流执行。
+  方法展开：是
+
+- `RagEvalTraceContext`
+  位置：`rag/src/main/java/com/ycy/aiapplication/rag/eval/trace/RagEvalTraceContext.java`
+  作用：基于 ThreadLocal 维护评测追踪上下文（traceId/runId/queryId）与作用域开关。
+  方法展开：是
+
+- `RagEvalTraceWriter`
+  位置：`rag/src/main/java/com/ycy/aiapplication/rag/eval/trace/RagEvalTraceWriter.java`
+  作用：将评测事件写入 JSONL（`app.rag-eval.log-path`，默认 `logs/rag-eval.jsonl`），并生成 chunk 摘要与重排前后排名对比。
+  方法展开：是
+
+- `RagEvalRetrievalAspect`
+  位置：`rag/src/main/java/com/ycy/aiapplication/rag/eval/trace/RagEvalRetrievalAspect.java`
+  作用：AOP 环绕检索通道 `SearchChannel.search` 与 `RerankClient.rerank`，仅在评测上下文激活时记录耗时与排名变化。
   方法展开：是
 
 **<span style="color:#ef6c00">实体信息类</span>**
@@ -1653,6 +1696,21 @@
 - `StreamChatHandlerParams`
   位置：`rag/src/main/java/com/ycy/aiapplication/rag/stream/StreamChatHandlerParams.java`
   作用：承载请求、响应、数据库实体、值对象或业务过程数据。
+  方法展开：否
+
+- `RagEvalResponse`
+  位置：`rag/src/main/java/com/ycy/aiapplication/rag/eval/dto/RagEvalResponse.java`
+  作用：评测响应 record，承载命中文档/chunk/意图/通道及各阶段耗时；内含 `IntentView`/`IntentNodeView`/`ChunkView`/`ChannelView`/`TimingView` 嵌套 record。
+  方法展开：否
+
+- `RagEvalStreamEvents`
+  位置：`rag/src/main/java/com/ycy/aiapplication/rag/eval/dto/RagEvalStreamEvents.java`
+  作用：流式评测 SSE 事件载体，含 `MetaEvent`/`RetrievalEvent`/`FinishEvent` 嵌套 record（traceId、route、chunks、各阶段 timings、responseChars 等）。
+  方法展开：否
+
+- `RagEvalChunkProbeRequest` / `RagEvalChunkProbeResponse`
+  位置：`rag/src/main/java/com/ycy/aiapplication/rag/eval/dto/RagEvalChunkProbeRequest.java`、`.../RagEvalChunkProbeResponse.java`
+  作用：chunk 数据集生成的请求/响应 record。请求含 kbId/docIds/chunkIds/limit/questionsPerChunk/minChars/seed；响应含生成的样本列表（query 与期望 chunk/doc 标注）。
   方法展开：否
 
 **<span style="color:#455a64">配置类</span>**
@@ -3032,9 +3090,11 @@
 
 ### infrastructure-ai 方法
 
-#### AbstractOpenAIStyleChatClient
+#### OpenAIStyleChatClient
 
-位置：`infrastructure-ai/src/main/java/com/ycy/aiapplication/infrastructure/ai/chat/impl/client/AbstractOpenAIStyleChatClient.java`
+位置：`infrastructure-ai/src/main/java/com/ycy/aiapplication/infrastructure/ai/chat/impl/client/OpenAIStyleChatClient.java`
+
+> 说明：原 `AbstractOpenAIStyleChatClient` + `BaiLianChatClient` + `SiliconFlowChatClient` 已整合为本统一客户端（`86e1d45`）。`provider()` 抽象方法被移除，provider 与思考开关改由 `ModelTarget` 解析；除 `chat`/`streamChat` 外多数方法收敛为 `private`。
 
 - `public String chat(ChatRequest request, ModelTarget target)`
   参数：`ChatRequest request`；`ModelTarget target`
@@ -3044,76 +3104,54 @@
   参数：`ChatRequest request`；`StreamCallback callback`；`ModelTarget target`
   返回值：`StreamCancellationHandle`
   作用：发起聊天或流式输出处理。
-- `protected void doStream(Call call, StreamCallback callback, AtomicBoolean cancelled, boolean reasoningEnabled)`
+- `private void doStream(Call call, StreamCallback callback, AtomicBoolean cancelled, boolean reasoningEnabled)`
   参数：`Call call`；`StreamCallback callback`；`AtomicBoolean cancelled`；`boolean reasoningEnabled`
   返回值：`void`
   作用：发起聊天或流式输出处理。
-- `protected Request buildChatRequest(ChatRequest request, ModelTarget target, boolean stream)`
+- `private Request buildChatRequest(ChatRequest request, ModelTarget target, boolean stream)`
   参数：`ChatRequest request`；`ModelTarget target`；`boolean stream`
   返回值：`Request`
   作用：发起聊天或流式输出处理。
-- `protected JsonObject buildRequestBody(ChatRequest request, ModelTarget target, boolean stream)`
+- `private JsonObject buildRequestBody(ChatRequest request, ModelTarget target, boolean stream)`
   参数：`ChatRequest request`；`ModelTarget target`；`boolean stream`
   返回值：`JsonObject`
   作用：执行该类对应的核心业务动作。
-- `protected void applyThinking(JsonObject requestBody, ChatRequest request, boolean stream)`
-  参数：`JsonObject requestBody`；`ChatRequest request`；`boolean stream`
+- `private void applyThinking(JsonObject requestBody, ChatRequest request, ModelTarget target)`
+  参数：`JsonObject requestBody`；`ChatRequest request`；`ModelTarget target`
   返回值：`void`
   作用：执行该类对应的核心业务动作。
-- `protected JsonArray buildMessages(List<ChatMessage> messages)`
+- `private JsonArray buildMessages(List<ChatMessage> messages)`
   参数：`List<ChatMessage> messages`
   返回值：`JsonArray`
   作用：执行该类对应的核心业务动作。
-- `protected String toRole(ChatMessage.Role role)`
+- `private String toRole(ChatMessage.Role role)`
   参数：`ChatMessage.Role role`
   返回值：`String`
   作用：执行该类对应的核心业务动作。
-- `protected String resolveUrl(ModelTarget target)`
+- `private String resolveUrl(ModelTarget target)`
   参数：`ModelTarget target`
   返回值：`String`
   作用：执行意图识别、解析或决策。
-- `protected String resolveApiKey(String provider)`
+- `private String resolveApiKey(String provider)`
   参数：`String provider`
   返回值：`String`
   作用：执行意图识别、解析或决策。
-- `protected JsonObject parseJsonBody(ResponseBody body) throws IOException`
-  参数：`ResponseBody body`
+- `private JsonObject parseJsonBody(ResponseBody body, ModelTarget target) throws IOException`
+  参数：`ResponseBody body`；`ModelTarget target`
   返回值：`JsonObject`
   作用：执行该类对应的核心业务动作。
-- `protected String readBody(ResponseBody body) throws IOException`
+- `private String readBody(ResponseBody body) throws IOException`
   参数：`ResponseBody body`
   返回值：`String`
   作用：执行该类对应的核心业务动作。
-- `protected String extractChatContent(JsonObject root)`
+- `private String extractChatContent(JsonObject root)`
   参数：`JsonObject root`
   返回值：`String`
   作用：发起聊天或流式输出处理。
-- `protected ModelClientErrorType classifyStatus(int statusCode)`
+- `private ModelClientErrorType classifyStatus(int statusCode)`
   参数：`int statusCode`
   返回值：`ModelClientErrorType`
   作用：执行意图识别、解析或决策。
-
-#### BaiLianChatClient
-
-位置：`infrastructure-ai/src/main/java/com/ycy/aiapplication/infrastructure/ai/chat/impl/client/BaiLianChatClient.java`
-
-- `public String provider()`
-  参数：无
-  返回值：`String`
-  作用：执行该类对应的核心业务动作。
-- `protected void applyThinking(JsonObject requestBody, ChatRequest request, boolean stream)`
-  参数：`JsonObject requestBody`；`ChatRequest request`；`boolean stream`
-  返回值：`void`
-  作用：执行该类对应的核心业务动作。
-
-#### SiliconFlowChatClient
-
-位置：`infrastructure-ai/src/main/java/com/ycy/aiapplication/infrastructure/ai/chat/impl/client/SiliconFlowChatClient.java`
-
-- `public String provider()`
-  参数：无
-  返回值：`String`
-  作用：执行该类对应的核心业务动作。
 
 #### RoutingLLMService
 
@@ -4636,6 +4674,79 @@
   参数：`SseEmitterSender sender`；`CompletionPayload payload`
   返回值：`void`
   作用：发送 SSE 事件或结束流式响应。
+
+#### RagEvalController
+
+位置：`rag/src/main/java/com/ycy/aiapplication/rag/eval/controller/RagEvalController.java`
+
+- `public Result<RagEvalResponse> retrieve(@RequestParam String question, @RequestParam(defaultValue="10") int topK, @RequestParam(defaultValue="true") boolean includeContexts, @RequestParam(required=false) String traceId, @RequestHeader("X-Eval-Run-Id") String runId, @RequestHeader("X-Eval-Query-Id") String queryId)`
+  参数：`String question`；`int topK`；`boolean includeContexts`；`String traceId`；`String runId`；`String queryId`
+  返回值：`Result<RagEvalResponse>`
+  作用：复跑检索全链路并返回结构化诊断。
+
+#### RagEvalServiceImpl
+
+位置：`rag/src/main/java/com/ycy/aiapplication/rag/eval/service/impl/RagEvalServiceImpl.java`
+
+- `public RagEvalResponse evaluate(String question, int topK, boolean includeContexts, String requestedTraceId, String runId, String queryId)`
+  参数：`String question`；`int topK`；`boolean includeContexts`；`String requestedTraceId`；`String runId`；`String queryId`
+  返回值：`RagEvalResponse`
+  作用：在评测追踪作用域内复跑「重写→意图→引导→检索→Prompt」全链路（不做 LLM 生成）。
+- `private RagEvalResponse completeWithoutRetrieval(...)`
+  返回值：`RagEvalResponse`
+  作用：引导/纯系统路由场景下不检索直接组装响应。
+- `private List<RagEvalResponse.IntentView> buildIntentViews(List<SubQuestionIntent> subIntents)`
+  参数：`List<SubQuestionIntent> subIntents`
+  返回值：`List<RagEvalResponse.IntentView>`
+  作用：将子问题意图与节点打分转换为视图。
+- `private List<RetrievedChunk> flattenFinalChunks(RetrievalContext retrievalContext)`
+  参数：`RetrievalContext retrievalContext`
+  返回值：`List<RetrievedChunk>`
+  作用：按分数去重展平意图维度命中 chunk。
+- `private Map<String, KnowledgeChunkDO> loadChunkMetadata(RetrievalContext retrievalContext)` / `private Map<String, KnowledgeDocumentDO> loadDocumentMetadata(Collection<KnowledgeChunkDO> chunks)`
+  作用：批量回查 chunk 与文档元数据，补全 docId/docName/kbId。
+- `private List<RagEvalResponse.ChunkView> buildChunkViews(...)` / `private List<RagEvalResponse.ChannelView> buildChannelViews(...)`
+  作用：组装 chunk 与检索通道视图（受 `includeContexts` 控制是否带正文）。
+
+#### RagEvalTraceWriter
+
+位置：`rag/src/main/java/com/ycy/aiapplication/rag/eval/trace/RagEvalTraceWriter.java`
+
+- `public void write(String event, Map<String, ?> details)`
+  参数：`String event`；`Map<String, ?> details`
+  返回值：`void`
+  作用：将带 schemaVersion/时间戳/追踪上下文的事件追加写入 JSONL。
+- `public List<Map<String, Object>> chunkSummaries(List<RetrievedChunk> chunks)`
+  参数：`List<RetrievedChunk> chunks`
+  返回值：`List<Map<String, Object>>`
+  作用：生成 chunk 排名/分数/正文摘要。
+- `public List<Map<String, Object>> rerankComparisons(List<RetrievedChunk> candidates, List<RetrievedChunk> reranked)`
+  参数：`List<RetrievedChunk> candidates`；`List<RetrievedChunk> reranked`
+  返回值：`List<Map<String, Object>>`
+  作用：对比重排前后排名变化。
+
+#### RagEvalRetrievalAspect
+
+位置：`rag/src/main/java/com/ycy/aiapplication/rag/eval/trace/RagEvalRetrievalAspect.java`
+
+- `public Object observeSearchChannel(ProceedingJoinPoint joinPoint)`
+  参数：`ProceedingJoinPoint joinPoint`
+  返回值：`Object`
+  作用：环绕检索通道 `search`，记录通道结果与耗时（仅评测上下文激活时）。
+- `public Object observeRerank(ProceedingJoinPoint joinPoint)`
+  参数：`ProceedingJoinPoint joinPoint`
+  返回值：`Object`
+  作用：环绕 `RerankClient.rerank`，记录候选/结果与排名变化。
+
+#### RagEvalTraceContext
+
+位置：`rag/src/main/java/com/ycy/aiapplication/rag/eval/trace/RagEvalTraceContext.java`
+
+- `public static Scope open(String traceId, String runId, String queryId)`
+  返回值：`Scope`
+  作用：开启 ThreadLocal 评测追踪作用域，`close` 时还原。
+- `public static Optional<State> current()` / `public static boolean isActive()`
+  作用：读取当前追踪状态 / 判断是否处于评测上下文。
 
 ## 6. 实体信息类概览
 

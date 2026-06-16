@@ -23,7 +23,8 @@ public class WebConfiguration implements WebMvcConfigurer {
                 .addPathPatterns("/conversations/**")
                 .excludePathPatterns(
                         "/api/user/service/login",
-                        "/api/user/service/sign/up"
+                        "/api/user/service/sign/up",
+                        "/api/rag/eval/**"
                         );
         registry.addInterceptor(adminPermissionInterceptor)
                 .addPathPatterns("/api/rag/intent-node")

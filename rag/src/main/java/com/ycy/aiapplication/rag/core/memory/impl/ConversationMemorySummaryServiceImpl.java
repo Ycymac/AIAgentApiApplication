@@ -206,9 +206,9 @@ public class ConversationMemorySummaryServiceImpl implements ConversationMemoryS
      */
     private String summarizeMessages(List<ConversationMessageDO> messages, String existingSummary) {
         List<ChatMessage> histories = toHistoryMessages(messages);
-        //历史记录缺失，使用当前存在的总结
+        //历史记录缺失，放弃总结
         if (CollUtil.isEmpty(histories)) {
-            return existingSummary;
+            return "";
         }
         //构建总结生成提示词
         int summaryMaxChars = memoryProperties.getSummaryMaxChars();
@@ -243,7 +243,7 @@ public class ConversationMemorySummaryServiceImpl implements ConversationMemoryS
             return result;
         } catch (Exception e) {
             log.error("对话记忆摘要生成失败, conversationId相关消息数: {}", messages.size(), e);
-            return existingSummary;
+            return "";
         }
     }
 

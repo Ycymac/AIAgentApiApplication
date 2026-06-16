@@ -32,3 +32,11 @@ build/
 
 ### VS Code ###
 .vscode/
+/docs/javis_test_report/aiapplication-rag-eval_chunk_stream_20260615_213140.html
+/docs/javis_test_report/aiapplication-rag-eval_compare_20260616_083412.html
+/docs/javis_test_report/aiapplication-rag-eval_compare_20260616_093244.html
+/docs/javis_test_report/aiapplication-rag-eval_java_jvm_20260615_222325.html
+/docs/javis_test_report/aiapplication-rag-eval_java_jvm_20260615_231335.html
+/docs/javis_test_report/aiapplication-rag-eval_java_jvm_20260616_092922.md
+/docs/javis_test_report/aiapplication-rag-eval_mock_run.html
+/logs/rag-eval.jsonl
