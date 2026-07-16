@@ -5,6 +5,7 @@ import com.ycy.aiapplication.framework.web.Results;
 import com.ycy.aiapplication.rag.eval.dto.RagEvalChunkProbeRequest;
 import com.ycy.aiapplication.rag.eval.dto.RagEvalChunkProbeResponse;
 import com.ycy.aiapplication.rag.eval.dto.RagEvalResponse;
+import com.ycy.aiapplication.rag.eval.intent.RagEvalIntentMode;
 import com.ycy.aiapplication.rag.eval.service.RagEvalService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -29,6 +30,7 @@ public class RagEvalController {
             @RequestParam String question,
             @RequestParam(defaultValue = "10") int topK,
             @RequestParam(defaultValue = "true") boolean includeContexts,
+            @RequestParam(defaultValue = "combined") String intentMode,
             @RequestParam(required = false) String traceId,
             @RequestHeader(value = "X-Eval-Run-Id", required = false) String runId,
             @RequestHeader(value = "X-Eval-Query-Id", required = false) String queryId) {
@@ -36,6 +38,7 @@ public class RagEvalController {
                 question,
                 topK,
                 includeContexts,
+                RagEvalIntentMode.parse(intentMode),
                 traceId,
                 runId,
                 queryId));

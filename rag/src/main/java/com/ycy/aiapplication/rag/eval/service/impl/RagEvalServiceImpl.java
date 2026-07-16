@@ -33,6 +33,8 @@ import com.ycy.aiapplication.rag.core.rewrite.service.QueryRewriteService;
 import com.ycy.aiapplication.rag.eval.dto.RagEvalChunkProbeRequest;
 import com.ycy.aiapplication.rag.eval.dto.RagEvalChunkProbeResponse;
 import com.ycy.aiapplication.rag.eval.dto.RagEvalResponse;
+import com.ycy.aiapplication.rag.eval.intent.RagEvalIntentMode;
+import com.ycy.aiapplication.rag.eval.intent.RagEvalIntentRouter;
 import com.ycy.aiapplication.rag.eval.service.RagEvalChunkMetadataResolver;
 import com.ycy.aiapplication.rag.eval.service.RagEvalService;
 import com.ycy.aiapplication.rag.eval.trace.RagEvalTraceContext;
@@ -60,6 +62,7 @@ public class RagEvalServiceImpl implements RagEvalService {
 
     private final QueryRewriteService queryRewriteService;
     private final IntentResolver intentResolver;
+    private final RagEvalIntentRouter evalIntentRouter;
     private final IntentGuidanceService guidanceService;
     private final RetrievalEngine retrievalEngine;
     private final RAGPromptService promptBuilder;
@@ -74,11 +77,13 @@ public class RagEvalServiceImpl implements RagEvalService {
             String question,
             int topK,
             boolean includeContexts,
+            RagEvalIntentMode intentMode,
             String requestedTraceId,
             String runId,
             String queryId) {
         String traceId = StrUtil.blankToDefault(requestedTraceId, IdUtil.fastSimpleUUID());
         int resolvedTopK = topK > 0 ? topK : RAGConstant.DEFAULT_TOP_K;
+        RagEvalIntentMode resolvedIntentMode = intentMode == null ? RagEvalIntentMode.COMBINED : intentMode;
 
         try (RagEvalTraceContext.Scope ignored = RagEvalTraceContext.open(traceId, runId, queryId)) {
             long totalStartedAt = System.nanoTime();
@@ -86,7 +91,8 @@ public class RagEvalServiceImpl implements RagEvalService {
                 traceWriter.write("eval.request.started", details(
                         "question", question,
                         "topK", resolvedTopK,
-                        "includeContexts", includeContexts));
+                        "includeContexts", includeContexts,
+                        "intentMode", resolvedIntentMode.value()));
 
                 long rewriteStartedAt = System.nanoTime();
                 RewriteResult rewriteResult = queryRewriteService.rewriteWithSplit(question, List.of());
@@ -97,10 +103,11 @@ public class RagEvalServiceImpl implements RagEvalService {
                         "subQuestions", rewriteResult.subQuestions()));
 
                 long intentStartedAt = System.nanoTime();
-                List<SubQuestionIntent> subIntents = intentResolver.resolve(rewriteResult);
+                List<SubQuestionIntent> subIntents = evalIntentRouter.resolve(rewriteResult, resolvedIntentMode);
                 long intentMs = elapsedMs(intentStartedAt);
                 traceWriter.write("eval.intent.completed", details(
                         "latencyMs", intentMs,
+                        "intentMode", resolvedIntentMode.value(),
                         "intents", buildIntentViews(subIntents)));
 
                 long guidanceStartedAt = System.nanoTime();
@@ -112,7 +119,7 @@ public class RagEvalServiceImpl implements RagEvalService {
                         "guidancePrompt", guidanceDecision.getPrompt()));
                 if (guidanceDecision.isPrompt()) {
                     return completeWithoutRetrieval(
-                            traceId, runId, queryId, question, rewriteResult, subIntents,
+                            traceId, runId, queryId, question, rewriteResult, subIntents, resolvedIntentMode,
                             "GUIDANCE", guidanceDecision.getPrompt(), totalStartedAt, rewriteMs, intentMs, guidanceMs);
                 }
 
@@ -120,7 +127,7 @@ public class RagEvalServiceImpl implements RagEvalService {
                         .allMatch(intent -> intentResolver.isSystemOnly(intent.nodeScores()));
                 if (allSystem) {
                     return completeWithoutRetrieval(
-                            traceId, runId, queryId, question, rewriteResult, subIntents,
+                            traceId, runId, queryId, question, rewriteResult, subIntents, resolvedIntentMode,
                             "SYSTEM", null, totalStartedAt, rewriteMs, intentMs, guidanceMs);
                 }
 
@@ -178,7 +185,7 @@ public class RagEvalServiceImpl implements RagEvalService {
                 long totalMs = elapsedMs(totalStartedAt);
                 String route = retrievalContext.isEmpty() ? "KB_EMPTY" : "KB";
                 RagEvalResponse response = response(
-                        traceId, runId, queryId, question, rewriteResult, subIntents,
+                        traceId, runId, queryId, question, rewriteResult, subIntents, resolvedIntentMode,
                         route, null, chunks, channels,
                         new RagEvalResponse.TimingView(totalMs, rewriteMs, intentMs, guidanceMs, retrievalMs, promptMs));
                 traceWriter.write("eval.request.completed", details(
@@ -387,6 +394,7 @@ public class RagEvalServiceImpl implements RagEvalService {
             String question,
             RewriteResult rewriteResult,
             List<SubQuestionIntent> subIntents,
+            RagEvalIntentMode intentMode,
             String route,
             String guidancePrompt,
             long totalStartedAt,
@@ -395,7 +403,7 @@ public class RagEvalServiceImpl implements RagEvalService {
             long guidanceMs) {
         long totalMs = elapsedMs(totalStartedAt);
         RagEvalResponse response = response(
-                traceId, runId, queryId, question, rewriteResult, subIntents,
+                traceId, runId, queryId, question, rewriteResult, subIntents, intentMode,
                 route, guidancePrompt, List.of(), List.of(),
                 new RagEvalResponse.TimingView(totalMs, rewriteMs, intentMs, guidanceMs, 0, 0));
         traceWriter.write("eval.request.completed", details(
@@ -412,6 +420,7 @@ public class RagEvalServiceImpl implements RagEvalService {
             String question,
             RewriteResult rewriteResult,
             List<SubQuestionIntent> subIntents,
+            RagEvalIntentMode intentMode,
             String route,
             String guidancePrompt,
             List<RagEvalResponse.ChunkView> chunks,
@@ -441,6 +450,7 @@ public class RagEvalServiceImpl implements RagEvalService {
                 rewriteResult.rewrittenQuestion(),
                 rewriteResult.subQuestions(),
                 route,
+                intentMode.value(),
                 guidancePrompt,
                 !chunks.isEmpty(),
                 false,
@@ -459,27 +469,36 @@ public class RagEvalServiceImpl implements RagEvalService {
     private List<RagEvalResponse.IntentView> buildIntentViews(List<SubQuestionIntent> subIntents) {
         return subIntents.stream().filter(Objects::nonNull).map(intent -> {
             FirstLayerIntentDecision firstLayer = intent.firstLayerDecision();
-            List<RagEvalResponse.IntentNodeView> nodes = intent.nodeScores() == null
+            List<RagEvalResponse.IntentNodeView> nodes = buildIntentNodeViews(intent.nodeScores());
+            List<RagEvalResponse.IntentNodeView> candidates = firstLayer == null
                     ? List.of()
-                    : intent.nodeScores().stream()
-                    .filter(Objects::nonNull)
-                    .filter(node -> node.getNode() != null)
-                    .map(node -> new RagEvalResponse.IntentNodeView(
-                            node.getNode().getId(),
-                            node.getNode().getName(),
-                            node.getNode().getKbId(),
-                            node.getNode().getCollectionName(),
-                            node.getNode().getKind() == null ? null : node.getNode().getKind().name(),
-                            node.getScore()))
-                    .toList();
+                    : buildIntentNodeViews(firstLayer.nodeScores());
             return new RagEvalResponse.IntentView(
                     intent.subQuestion(),
                     intent.routeKind() == null ? null : intent.routeKind().name(),
                     intent.globalKbFallback(),
                     firstLayer == null ? null : firstLayer.ragScore(),
                     firstLayer == null ? null : firstLayer.systemScore(),
-                    nodes);
+                    nodes,
+                    candidates);
         }).toList();
+    }
+
+    private List<RagEvalResponse.IntentNodeView> buildIntentNodeViews(List<com.ycy.aiapplication.rag.core.intent.common.NodeScore> scores) {
+        if (scores == null) {
+            return List.of();
+        }
+        return scores.stream()
+                .filter(Objects::nonNull)
+                .filter(node -> node.getNode() != null)
+                .map(node -> new RagEvalResponse.IntentNodeView(
+                        node.getNode().getId(),
+                        node.getNode().getName(),
+                        node.getNode().getKbId(),
+                        node.getNode().getCollectionName(),
+                        node.getNode().getKind() == null ? null : node.getNode().getKind().name(),
+                        node.getScore()))
+                .toList();
     }
 
     private List<RetrievedChunk> flattenFinalChunks(RetrievalContext retrievalContext) {

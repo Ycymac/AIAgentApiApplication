@@ -1,6 +1,7 @@
 package com.ycy.aiapplication.rag.eval.controller;
 
 import com.ycy.aiapplication.rag.eval.service.RagEvalStreamService;
+import com.ycy.aiapplication.rag.eval.intent.RagEvalIntentMode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,6 +22,7 @@ public class RagEvalStreamController {
             @RequestParam String question,
             @RequestParam(defaultValue = "10") int topK,
             @RequestParam(defaultValue = "false") boolean deepThinking,
+            @RequestParam(defaultValue = "combined") String intentMode,
             @RequestParam(required = false) String traceId,
             @RequestHeader(value = "X-Eval-Run-Id", required = false) String runId,
             @RequestHeader(value = "X-Eval-Query-Id", required = false) String queryId) {
@@ -28,6 +30,7 @@ public class RagEvalStreamController {
                 question,
                 topK,
                 deepThinking,
+                RagEvalIntentMode.parse(intentMode),
                 traceId,
                 runId,
                 queryId);

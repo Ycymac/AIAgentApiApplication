@@ -12,7 +12,8 @@ public final class RagEvalStreamEvents {
             String traceId,
             String runId,
             String queryId,
-            String taskId) {
+            String taskId,
+            String intentMode) {
     }
 
     public record RetrievalEvent(

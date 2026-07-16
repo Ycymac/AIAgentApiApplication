@@ -10,6 +10,7 @@ public record RagEvalResponse(
         String rewrittenQuestion,
         List<String> subQuestions,
         String route,
+        String intentMode,
         String guidancePrompt,
         boolean hasKb,
         boolean hasMcp,
@@ -30,7 +31,8 @@ public record RagEvalResponse(
             boolean globalKbFallback,
             Double firstLayerRagScore,
             Double firstLayerSystemScore,
-            List<IntentNodeView> nodes) {
+            List<IntentNodeView> nodes,
+            List<IntentNodeView> candidateNodes) {
     }
 
     public record IntentNodeView(

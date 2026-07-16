@@ -25,6 +25,8 @@ import com.ycy.aiapplication.rag.core.rewrite.common.RewriteResult;
 import com.ycy.aiapplication.rag.core.rewrite.service.QueryRewriteService;
 import com.ycy.aiapplication.rag.eval.dto.RagEvalResponse;
 import com.ycy.aiapplication.rag.eval.dto.RagEvalStreamEvents;
+import com.ycy.aiapplication.rag.eval.intent.RagEvalIntentMode;
+import com.ycy.aiapplication.rag.eval.intent.RagEvalIntentRouter;
 import com.ycy.aiapplication.rag.eval.service.RagEvalChunkMetadataResolver;
 import com.ycy.aiapplication.rag.eval.service.RagEvalStreamService;
 import com.ycy.aiapplication.rag.eval.stream.RagEvalStreamCallback;
@@ -53,6 +55,7 @@ public class RagEvalStreamServiceImpl implements RagEvalStreamService {
 
     private final QueryRewriteService queryRewriteService;
     private final IntentResolver intentResolver;
+    private final RagEvalIntentRouter evalIntentRouter;
     private final IntentGuidanceService guidanceService;
     private final RetrievalEngine retrievalEngine;
     private final RAGPromptService promptBuilder;
@@ -66,6 +69,7 @@ public class RagEvalStreamServiceImpl implements RagEvalStreamService {
             String question,
             int topK,
             boolean deepThinking,
+            RagEvalIntentMode intentMode,
             String requestedTraceId,
             String runId,
             String queryId) {
@@ -78,22 +82,29 @@ public class RagEvalStreamServiceImpl implements RagEvalStreamService {
         String traceId = StrUtil.blankToDefault(requestedTraceId, IdUtil.fastSimpleUUID());
         String taskId = IdUtil.getSnowflakeNextIdStr();
         int resolvedTopK = topK > 0 ? topK : RAGConstant.DEFAULT_TOP_K;
+        RagEvalIntentMode resolvedIntentMode = intentMode == null ? RagEvalIntentMode.COMBINED : intentMode;
         long totalStartedAt = System.nanoTime();
         Map<String, Long> timings = new LinkedHashMap<>();
 
         try (RagEvalTraceContext.Scope ignored = RagEvalTraceContext.open(traceId, runId, queryId)) {
-            sender.sendEvent("meta", new RagEvalStreamEvents.MetaEvent(traceId, runId, queryId, taskId));
+            sender.sendEvent("meta", new RagEvalStreamEvents.MetaEvent(
+                    traceId,
+                    runId,
+                    queryId,
+                    taskId,
+                    resolvedIntentMode.value()));
             traceWriter.write("eval.stream.started", details(
                     "question", question,
                     "topK", resolvedTopK,
-                    "deepThinking", deepThinking));
+                    "deepThinking", deepThinking,
+                    "intentMode", resolvedIntentMode.value()));
 
             long rewriteStartedAt = System.nanoTime();
             RewriteResult rewriteResult = queryRewriteService.rewriteWithSplit(question, List.of());
             timings.put("rewriteMs", elapsedMs(rewriteStartedAt));
 
             long intentStartedAt = System.nanoTime();
-            List<SubQuestionIntent> subIntents = intentResolver.resolve(rewriteResult);
+            List<SubQuestionIntent> subIntents = evalIntentRouter.resolve(rewriteResult, resolvedIntentMode);
             timings.put("intentMs", elapsedMs(intentStartedAt));
 
             long guidanceStartedAt = System.nanoTime();
