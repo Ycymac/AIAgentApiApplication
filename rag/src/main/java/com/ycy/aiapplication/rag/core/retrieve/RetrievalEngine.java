@@ -8,7 +8,9 @@ import com.ycy.aiapplication.rag.core.retrieve.channel.SearchChannel;
 import com.ycy.aiapplication.rag.core.retrieve.channel.SearchChannelResult;
 import com.ycy.aiapplication.rag.core.retrieve.channel.impls.AbstractVectorSearchChannel;
 import com.ycy.aiapplication.rag.core.retrieve.common.RetrievalContext;
+import com.ycy.aiapplication.rag.core.retrieve.common.QueryEmbeddingContext;
 import com.ycy.aiapplication.rag.core.retrieve.common.SearchContext;
+import com.ycy.aiapplication.rag.core.retrieve.common.SearchTask;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -32,12 +34,16 @@ public class RetrievalEngine {
 
     private final List<SearchChannel> searchChannels;
     private final RerankClient rerankClient;
+    private final QueryEmbeddingBatcher queryEmbeddingBatcher;
 
-    public RetrievalEngine(List<SearchChannel> searchChannels, RerankClient rerankClient) {
+    public RetrievalEngine(List<SearchChannel> searchChannels,
+                           RerankClient rerankClient,
+                           QueryEmbeddingBatcher queryEmbeddingBatcher) {
         this.searchChannels = searchChannels.stream()
                 .sorted(Comparator.comparingInt(SearchChannel::getPriority))
                 .toList();
         this.rerankClient = rerankClient;
+        this.queryEmbeddingBatcher = queryEmbeddingBatcher;
     }
 
     /**
@@ -49,10 +55,23 @@ public class RetrievalEngine {
             return RetrievalContext.empty();
         }
 
-        // 按通道优先级执行检索，仅保留真正返回了分块结果的通道。
-        List<SearchChannelResult> results = searchChannels.stream()
+        // 所有启用通道先完成任务规划，再对整次请求统一执行模型映射和批量向量化。
+        List<ChannelPlan> channelPlans = searchChannels.stream()
                 .filter(channel -> channel.isEnabled(context))
-                .map(channel -> channel.search(context))
+                .map(channel -> new ChannelPlan(channel, channel.plan(context)))
+                .toList();
+        List<SearchTask> allTasks = channelPlans.stream()
+                .flatMap(plan -> plan.tasks().stream())
+                .toList();
+        if (CollUtil.isEmpty(allTasks)) {
+            return RetrievalContext.empty();
+        }
+
+        QueryEmbeddingContext embeddingContext = queryEmbeddingBatcher.prepare(allTasks);
+
+        // 使用统一生成的请求级向量按通道执行检索，仅保留真正返回了分块结果的通道。
+        List<SearchChannelResult> results = channelPlans.stream()
+                .map(plan -> plan.channel().search(context, plan.tasks(), embeddingContext))
                 .filter(Objects::nonNull)
                 .filter(result -> CollUtil.isNotEmpty(result.getChunks()))
                 .toList();
@@ -253,5 +272,8 @@ public class RetrievalEngine {
             return chunk.getId();
         }
         return StrUtil.blankToDefault(chunk.getText(), "");
+    }
+
+    private record ChannelPlan(SearchChannel channel, List<SearchTask> tasks) {
     }
 }

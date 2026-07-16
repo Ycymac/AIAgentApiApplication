@@ -1,6 +1,10 @@
 package com.ycy.aiapplication.rag.core.retrieve.channel;
 
 import com.ycy.aiapplication.rag.core.retrieve.common.SearchContext;
+import com.ycy.aiapplication.rag.core.retrieve.common.QueryEmbeddingContext;
+import com.ycy.aiapplication.rag.core.retrieve.common.SearchTask;
+
+import java.util.List;
 
 /**
  * 检索通道统一接口。
@@ -35,12 +39,16 @@ public interface SearchChannel {
     boolean isEnabled(SearchContext context);
 
     /**
-     * 执行当前通道检索。
-     *
-     * @param context 检索上下文。
-     * @return 当前通道的统一检索结果。
+     * 根据当前意图构建通道检索任务，不执行外部检索调用。
      */
-    SearchChannelResult search(SearchContext context);
+    List<SearchTask> plan(SearchContext context);
+
+    /**
+     * 使用已规划任务和请求级预计算向量执行检索。
+     */
+    SearchChannelResult search(SearchContext context,
+                               List<SearchTask> tasks,
+                               QueryEmbeddingContext embeddingContext);
 
     /**
      * 获取通道类型。

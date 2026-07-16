@@ -9,6 +9,7 @@ import com.ycy.aiapplication.rag.core.intent.common.SubQuestionIntent;
 import com.ycy.aiapplication.rag.core.intent.common.enums.IntentKind;
 import com.ycy.aiapplication.rag.core.intent.management.IntentNodeRegistry;
 import com.ycy.aiapplication.rag.core.retrieve.common.SearchContext;
+import com.ycy.aiapplication.rag.core.retrieve.common.SearchTask;
 import com.ycy.aiapplication.rag.core.retrieve.channel.SearchChannelType;
 import com.ycy.aiapplication.rag.core.retrieve.channel.retriver.CollectionParallelRetriever;
 import org.springframework.stereotype.Component;

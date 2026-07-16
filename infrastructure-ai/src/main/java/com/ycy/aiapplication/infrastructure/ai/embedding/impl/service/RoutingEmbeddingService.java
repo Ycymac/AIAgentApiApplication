@@ -92,8 +92,18 @@ public class RoutingEmbeddingService implements EmbeddingService {
     }
 
     private EmbeddingRoute resolveRoute(String modelId) {
-        String primaryProvider = resolvePrimaryProvider(modelId);
-        String primaryModel = resolvePrimaryModel(primaryProvider, modelId);
+        if (StringUtils.hasText(modelId)) {
+            String provider = modelRegistry.resolveProvider(modelId);
+            if (!StringUtils.hasText(provider)) {
+                throw new IllegalArgumentException("Embedding model is not registered: " + modelId);
+            }
+            return new EmbeddingRoute(
+                    new EmbeddingRoute.EmbeddingTarget(provider, modelId),
+                    List.of());
+        }
+
+        String primaryProvider = resolvePrimaryProvider();
+        String primaryModel = resolvePrimaryModel(primaryProvider);
 
         List<EmbeddingRoute.EmbeddingTarget> fallbacks = new ArrayList<>();
         if (Boolean.TRUE.equals(properties.getEmbedding().getFallbackEnabled())
@@ -116,11 +126,7 @@ public class RoutingEmbeddingService implements EmbeddingService {
         );
     }
 
-    private String resolvePrimaryProvider(String modelId) {
-        String provider = modelRegistry.resolveProvider(modelId);
-        if (StringUtils.hasText(provider)) {
-            return provider;
-        }
+    private String resolvePrimaryProvider() {
         String defaultProvider = modelRegistry.normalize(properties.getEmbedding().getDefaultProvider());
         if (StringUtils.hasText(defaultProvider)) {
             return defaultProvider;
@@ -128,10 +134,7 @@ public class RoutingEmbeddingService implements EmbeddingService {
         throw new IllegalStateException("Embedding defaultProvider is not configured");
     }
 
-    private String resolvePrimaryModel(String provider, String modelId) {
-        if (StringUtils.hasText(modelId)) {
-            return modelId;
-        }
+    private String resolvePrimaryModel(String provider) {
         String resolvedModel = modelRegistry.getModel(provider);
         if (StringUtils.hasText(resolvedModel)) {
             return resolvedModel;

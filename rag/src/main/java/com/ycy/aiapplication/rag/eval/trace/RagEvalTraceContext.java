@@ -1,10 +1,12 @@
 package com.ycy.aiapplication.rag.eval.trace;
 
+import com.alibaba.ttl.TransmittableThreadLocal;
+
 import java.util.Optional;
 
 public final class RagEvalTraceContext {
 
-    private static final ThreadLocal<State> CURRENT = new ThreadLocal<>();
+    private static final ThreadLocal<State> CURRENT = new TransmittableThreadLocal<>();
 
     private RagEvalTraceContext() {
     }
