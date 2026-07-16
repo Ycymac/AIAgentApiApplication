@@ -9,6 +9,7 @@
 | `docs/CLAUDE.md`（本文件） | Claude 工作总览、核心约定、协作流程 | 每次开始任务前 |
 | `docs/codex_coding_guidance.md` | 全量接口清单、模块/类/方法逐项参考 | 定位类、方法、HTTP 接口边界时 |
 | `docs/codex_process.md` | 开发进度、Git 日志、未提交变更、风险与下一步 | 提交前、了解当前状态时 |
+| `docs/memo/memo_index.md` | Codex / Claude Code 跨 agent 轻量记忆索引 | 任务可能涉及历史决策、未完成链路或跨会话交接时先读索引 |
 
 > 维护约定：当代码、接口或进度发生变化时，应同步更新对应的 Codex 文档；本文件随项目结构性变化更新。
 
@@ -52,10 +53,21 @@
 
 ## 6. 协作流程建议
 
-1. **任务开始**：读本文件 → 用 `codex_coding_guidance.md` 定位涉及的模块/类/接口 → 用 `codex_process.md` 确认当前进度与风险。
+1. **任务开始**：读本文件 → 若任务可能依赖历史上下文，先读 `docs/memo/memo_index.md`，只打开标题/关键词/Use when 明确匹配的 1-2 个 memo → 用 `codex_coding_guidance.md` 定位涉及的模块/类/接口 → 用 `codex_process.md` 确认当前进度与风险。
 2. **开发中**：遵循既有分层、命名与 `Result`/异常/幂等约定；最小化跨模块改动。
 3. **提交前**：
    - 执行 `git status --short` 与 `git diff --check`，确认无误提交的密钥、生成产物或临时调试文件；
    - 对 `application.yaml` 凭据脱敏；
    - 同步更新相关 Codex 文档与（如有结构性变化）本文件。
 4. **验证**：能编译/局部测试的改动尽量本地验证；受既有测试配置阻塞时，记录在 `codex_process.md` 的风险/待确认项中。
+
+## 7. 跨 agent 记忆约定
+
+`docs/memo` 只作为轻量交接层，不作为聊天记录归档。目标是让 Codex 与 Claude Code 复用关键事实，同时避免默认消耗大量上下文。
+
+- 默认只读 `docs/memo/memo_index.md`；不要全文读取所有 memo。
+- 仅当 memo 的标题、关键词或 `Use when` 与当前任务直接匹配时，才读取具体 memo。
+- 每个具体 memo 顶部应维护 `Agent Handoff Summary`，让后续 agent 优先只读开头即可继续。
+- memo 更新采用事件触发：有可复用的决策、验证命令、产出文件、风险或下一步时再更新；不要因固定轮数机械更新。
+- 新建 memo 时同步更新 `docs/memo/memo_index.md`。
+- 禁止写入密钥、token、cookie、密码、私钥、Authorization header 或 credential-like 配置值。
