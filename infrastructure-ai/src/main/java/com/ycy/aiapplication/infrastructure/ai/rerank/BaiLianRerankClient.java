@@ -39,6 +39,8 @@ public class BaiLianRerankClient implements RerankClient {
 
     private final Gson gson = new Gson();
 
+    private final ThreadLocal<RerankCallDiagnostics> lastCallDiagnostics = new ThreadLocal<>();
+
     @Override
     public String provider() {
         return ModelProvider.BAI_LIAN.getId();
@@ -46,6 +48,7 @@ public class BaiLianRerankClient implements RerankClient {
 
     @Override
     public List<RetrievedChunk> rerank(String query, List<RetrievedChunk> candidates, int topN) {
+        lastCallDiagnostics.remove();
         if (!StringUtils.hasText(query)) {
             throw new ClientException("Rerank query cannot be empty");
         }
@@ -63,7 +66,9 @@ public class BaiLianRerankClient implements RerankClient {
         List<String> modelChain = resolveModelChain();
         RuntimeException lastException = null;
 
+        int attemptCount = 0;
         for (String modelId : modelChain) {
+            attemptCount++;
             try {
                 long startAt = System.currentTimeMillis();
                 List<RetrievedChunk> reranked = rerankByModel(query.trim(), normalizedCandidates, resolvedTopN, modelId);
@@ -74,9 +79,13 @@ public class BaiLianRerankClient implements RerankClient {
                         resolvedTopN,
                         System.currentTimeMillis() - startAt
                 );
+                lastCallDiagnostics.set(new RerankCallDiagnostics(
+                        attemptCount, modelId, attemptCount > 1));
                 return reranked;
             } catch (RuntimeException ex) {
                 lastException = ex;
+                lastCallDiagnostics.set(new RerankCallDiagnostics(
+                        attemptCount, null, attemptCount > 1));
                 log.warn("BaiLian rerank failed, model={}, trying next backup model", modelId, ex);
             }
         }
@@ -88,6 +97,18 @@ public class BaiLianRerankClient implements RerankClient {
             throw lastException;
         }
         throw new IllegalStateException("No available BaiLian rerank model configured");
+    }
+
+    /**
+     * Returns and clears diagnostics for the current thread's latest rerank call.
+     */
+    public RerankCallDiagnostics consumeLastCallDiagnostics() {
+        RerankCallDiagnostics diagnostics = lastCallDiagnostics.get();
+        lastCallDiagnostics.remove();
+        return diagnostics;
+    }
+
+    public record RerankCallDiagnostics(int attemptCount, String selectedModel, boolean fallbackUsed) {
     }
 
     private List<RetrievedChunk> rerankByModel(String query, List<RetrievedChunk> candidates, int topN, String modelId) {

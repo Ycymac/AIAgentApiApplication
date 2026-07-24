@@ -74,7 +74,8 @@ public class SecondLayerIntentClassifier implements IntentClassifier, IntentNode
                         ChatMessage.system(prompt),
                         ChatMessage.user(question)
                 ))
-                .temperature(0.1D)
+                // 二层分数直接决定定向、全库或拒答，使用零温度降低重复请求的路由波动。
+                .temperature(0D)
                 .topP(0.3D)
                 .thinking(false)
                 .build();
@@ -146,7 +147,7 @@ public class SecondLayerIntentClassifier implements IntentClassifier, IntentNode
      *
      * @param raw   模型原始输出
      * @param nodes 本轮参与打分的知识库节点，用于校验模型返回是否合法
-     * @return 合法且按分数降序排列的结果列表；解析失败时返回空列表
+     * @return 合法且按分数降序排列的结果列表；合法空数组表示无相关知识库
      */
     private List<NodeScore> parseNodeScores(String raw, List<IntentNode> nodes) {
         try {
@@ -155,7 +156,8 @@ public class SecondLayerIntentClassifier implements IntentClassifier, IntentNode
             JsonNode jsonNode = objectMapper.readTree(cleaned);
             JsonNode arrayNode = jsonNode.isArray() ? jsonNode : jsonNode.path("results");
             if (!arrayNode.isArray()) {
-                return List.of();
+                // 格式错误不等同于“没有相关节点”，必须中断流程，防止误触发全库检索。
+                throw new IllegalArgumentException("二层知识库意图识别结果不是 JSON 数组");
             }
 
             // 建立节点索引，防止模型返回候选集合之外的非法节点 ID。
@@ -178,7 +180,8 @@ public class SecondLayerIntentClassifier implements IntentClassifier, IntentNode
             return result;
         } catch (Exception ex) {
             log.warn("解析二层知识库意图识别结果失败, raw={}", raw, ex);
-            return List.of();
+            // 向上保留异常语义，使监控和调用方能够区分模型故障与合法空数组。
+            throw new IllegalStateException("解析二层知识库意图识别结果失败", ex);
         }
     }
 }

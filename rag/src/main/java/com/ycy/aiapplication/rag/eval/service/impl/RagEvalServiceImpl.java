@@ -101,6 +101,13 @@ public class RagEvalServiceImpl implements RagEvalService {
                         "latencyMs", rewriteMs,
                         "rewrittenQuestion", rewriteResult.rewrittenQuestion(),
                         "subQuestions", rewriteResult.subQuestions()));
+                if (rewriteResult.needsMoreContext()) {
+                    // 与生产流式链路保持一致：缺少指代上下文时返回 GUIDANCE，禁止继续检索。
+                    return completeWithoutRetrieval(
+                            traceId, runId, queryId, question, rewriteResult, List.of(), resolvedIntentMode,
+                            "GUIDANCE", RAGConstant.NEED_MORE_CONTEXT_PROMPT,
+                            totalStartedAt, rewriteMs, 0L, 0L);
+                }
 
                 long intentStartedAt = System.nanoTime();
                 List<SubQuestionIntent> subIntents = evalIntentRouter.resolve(rewriteResult, resolvedIntentMode);
@@ -168,7 +175,8 @@ public class RagEvalServiceImpl implements RagEvalService {
                             promptContext,
                             List.of(),
                             rewriteResult.rewrittenQuestion(),
-                            rewriteResult.subQuestions());
+                            rewriteResult.subQuestions(),
+                            List.of());
                     promptMessageCount = messages.size();
                 }
                 long promptMs = elapsedMs(promptStartedAt);

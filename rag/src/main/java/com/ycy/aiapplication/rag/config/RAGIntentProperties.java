@@ -25,6 +25,12 @@ public class RAGIntentProperties {
     private Double knowledgeMinScore = 0.45D;
 
     /**
+     * 第二层知识库节点允许进入全库检索的最低相关分数。
+     * 低于该值说明问题超出当前知识库能力范围。
+     */
+    private Double knowledgeGlobalMinScore = 0.20D;
+
+    /**
      * 第二层保留的最高分节点数量。
      */
     private Integer knowledgeTopN = 3;

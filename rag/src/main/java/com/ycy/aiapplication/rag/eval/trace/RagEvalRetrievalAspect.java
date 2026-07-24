@@ -1,6 +1,7 @@
 package com.ycy.aiapplication.rag.eval.trace;
 
 import com.ycy.aiapplication.framework.convention.RetrievedChunk;
+import com.ycy.aiapplication.infrastructure.ai.rerank.BaiLianRerankClient;
 import com.ycy.aiapplication.rag.core.retrieve.common.QueryEmbeddingContext;
 import com.ycy.aiapplication.rag.core.retrieve.common.RetrieveRequest;
 import com.ycy.aiapplication.rag.core.retrieve.common.SearchTask;
@@ -169,17 +170,34 @@ public class RagEvalRetrievalAspect {
             Object result = joinPoint.proceed();
             @SuppressWarnings("unchecked")
             List<RetrievedChunk> reranked = (List<RetrievedChunk>) result;
-            traceWriter.write("eval.rerank.completed", details(
+            Map<String, Object> completedDetails = details(
                     "latencyMs", elapsedMs(startedAt),
                     "chunks", traceWriter.chunkSummaries(reranked),
-                    "rankChanges", traceWriter.rerankComparisons(candidates, reranked)));
+                    "rankChanges", traceWriter.rerankComparisons(candidates, reranked));
+            addRerankDiagnostics(joinPoint, completedDetails);
+            traceWriter.write("eval.rerank.completed", completedDetails);
             return result;
         } catch (Throwable throwable) {
-            traceWriter.write("eval.rerank.failed", Map.of(
+            Map<String, Object> failedDetails = details(
                     "latencyMs", elapsedMs(startedAt),
-                    "error", throwable.toString()));
+                    "error", throwable.toString());
+            addRerankDiagnostics(joinPoint, failedDetails);
+            traceWriter.write("eval.rerank.failed", failedDetails);
             throw throwable;
         }
+    }
+
+    private void addRerankDiagnostics(ProceedingJoinPoint joinPoint, Map<String, Object> details) {
+        if (!(joinPoint.getTarget() instanceof BaiLianRerankClient client)) {
+            return;
+        }
+        BaiLianRerankClient.RerankCallDiagnostics diagnostics = client.consumeLastCallDiagnostics();
+        if (diagnostics == null) {
+            return;
+        }
+        details.put("modelAttemptCount", diagnostics.attemptCount());
+        details.put("selectedModel", diagnostics.selectedModel());
+        details.put("fallbackUsed", diagnostics.fallbackUsed());
     }
 
     private long elapsedMs(long startedAt) {

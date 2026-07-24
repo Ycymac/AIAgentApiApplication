@@ -48,7 +48,7 @@ public class QueryEmbeddingBatcher {
         if (collections.isEmpty()) {
             return QueryEmbeddingContext.empty();
         }
-
+        //查询知识库，建立知识库collectionName-向量化模型 映射关系
         Map<String, String> collectionModels;
         try {
             collectionModels = loadCollectionModels(collections);
@@ -58,6 +58,7 @@ public class QueryEmbeddingBatcher {
             return QueryEmbeddingContext.empty();
         }
 
+        //建立模型-不重复的子问题列表 映射关系
         Map<String, LinkedHashSet<String>> modelQuestions = new LinkedHashMap<>();
         Set<String> missingCollections = new LinkedHashSet<>();
         for (SearchTask task : tasks) {
@@ -83,6 +84,7 @@ public class QueryEmbeddingBatcher {
             return new QueryEmbeddingContext(collectionModels, Map.of());
         }
 
+        //执行批量向量化
         long embeddingStart = System.currentTimeMillis();
         List<ModelFuture> futures = modelQuestions.entrySet().stream()
                 .map(entry -> {
@@ -103,6 +105,7 @@ public class QueryEmbeddingBatcher {
             try {
                 List<float[]> modelVectors = modelFuture.future().join();
                 for (int index = 0; index < modelFuture.questions().size(); index++) {
+                    //构建为（向量模型ID，子问题语句），向量 的关系映射
                     vectors.put(
                             new QueryEmbeddingContext.EmbeddingKey(
                                     modelFuture.modelId(), modelFuture.questions().get(index)),

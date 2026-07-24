@@ -83,11 +83,13 @@ public class FirstLayerIntentClassifier implements IntentClassifier {
                         ChatMessage.system(prompt),
                         ChatMessage.user(question)
                 ))
-                .temperature(0.1D)
+                // 路由分类要求结果稳定，关闭采样随机性，减少相同问题在边界分数附近漂移。
+                .temperature(0D)
                 .topP(0.3D)
                 .thinking(false)
                 .build();
-        return parseNodeScores(llmService.chat(request));
+        String raw = llmService.chat(request);
+        return parseNodeScores(raw);
     }
 
     /**

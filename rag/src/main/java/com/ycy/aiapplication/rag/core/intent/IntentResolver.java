@@ -99,38 +99,55 @@ public class IntentResolver {
 
     /**
      * 对单个问题执行三层路由决策。
+     * <p>
+     * 决策顺序：
+     * 1. 第一层判断问题是否需要进入知识库相关性识别；
+     * 2. 第二层保留原始分数，并按定向阈值筛选具体知识库；
+     * 3. 未达到定向阈值时，仅允许可信弱相关问题进入全库检索；
+     * 4. 完全无关的问题转入 SYSTEM，避免低分问题无条件扫描全部知识库。
      *
      * @param question 单个子问题文本
      * @return 子问题的最终意图路由结果
      */
     private SubQuestionIntent resolveSingleQuestion(String question) {
+        // 第一层只决定是否进入二层，不直接授予知识库检索权限。
         FirstLayerIntentDecision firstLayerDecision = firstLayerIntentClassifier.decide(question);
-        List<NodeScore> kbScores = List.of();
+        List<NodeScore> rawKbScores = List.of();
         if (firstLayerDecision.shouldRetrieveKnowledgeBase()) {
-            // 第一层判定值得检索时，才进入第二层知识库节点打分。
-            kbScores = secondLayerIntentClassifier.topKAboveThreshold(
-                    question,
-                    defaultTopN(intentProperties.getKnowledgeTopN()),
-                    defaultMinScore(intentProperties.getKnowledgeMinScore())
-            );
+            // 必须保留二层原始分数，避免把弱相关与完全无关都折叠成“无定向节点”。
+            rawKbScores = secondLayerIntentClassifier.classifyTargets(question);
         }
 
         double ragScore = firstLayerDecision.ragScore();
         double systemScore = firstLayerDecision.systemScore();
         double firstLayerMinScore = defaultMinScore(intentProperties.getFirstLayerMinScore());
+        double directedMinScore = defaultMinScore(intentProperties.getKnowledgeMinScore());
+        double globalMinScore = defaultGlobalMinScore(intentProperties.getKnowledgeGlobalMinScore());
 
-        if (CollUtil.isNotEmpty(kbScores)) {
+        // 第一档：达到定向阈值的节点按分数顺序保留 TopN，交给定向检索通道。
+        List<NodeScore> directedKbScores = rawKbScores.stream()
+                .filter(each -> each.getScore() >= directedMinScore)
+                .limit(defaultTopN(intentProperties.getKnowledgeTopN()))
+                .toList();
+
+        if (CollUtil.isNotEmpty(directedKbScores)) {
             // 第一层偏向 RAG 且第二层已有知识库节点过阈值，直接走指定 KB 检索。
             return SubQuestionIntent.builder()
                     .subQuestion(question)
                     .routeKind(IntentKind.KB)
                     .globalKbFallback(false)
                     .firstLayerDecision(firstLayerDecision)
-                    .nodeScores(kbScores)
+                    .nodeScores(directedKbScores)
                     .build();
         }
-        if (ragScore >= firstLayerMinScore) {
-            // 第一层偏向 RAG，但第二层没有任何节点过阈值，此时走全局检索兜底。
+
+        // 第二档只关心最高相关分，判断是否至少存在一个可信的弱相关知识库信号。
+        double highestKbScore = rawKbScores.stream()
+                .mapToDouble(NodeScore::getScore)
+                .max()
+                .orElse(0D);
+        if (ragScore >= firstLayerMinScore && highestKbScore >= globalMinScore) {
+            // 二层存在可信的弱相关信号，但不足以定向到单个知识库，才允许全库检索。
             return SubQuestionIntent.builder()
                     .subQuestion(question)
                     .routeKind(IntentKind.KB)
@@ -139,22 +156,10 @@ public class IntentResolver {
                     .nodeScores(List.of())
                     .build();
         }
-        if (systemScore >= firstLayerMinScore) {
-            // SYSTEM 分足够高，且没有知识库节点命中，则直接走系统问答。
-            return SubQuestionIntent.builder()
-                    .subQuestion(question)
-                    .routeKind(IntentKind.SYSTEM)
-                    .globalKbFallback(false)
-                    .firstLayerDecision(firstLayerDecision)
-                    .nodeScores(List.of(NodeScore.builder()
-                            .node(IntentNode.builder()
-                                    .id("SYSTEM")
-                                    .name("SYSTEM")
-                                    .kind(IntentKind.SYSTEM)
-                                    .build())
-                            .score(systemScore)
-                            .build()))
-                    .build();
+
+        // 第三档：技术问题与现有知识库无关时也走 SYSTEM，由系统提示词说明能力边界。
+        if (ragScore >= firstLayerMinScore || systemScore >= firstLayerMinScore) {
+            return systemIntent(question, firstLayerDecision, systemScore);
         }
 
         // 两层信号都很弱，且没有命中知识库列表，则标记为 UNKNOWN，交给后续通用能力兜底。
@@ -164,6 +169,34 @@ public class IntentResolver {
                 .globalKbFallback(false)
                 .firstLayerDecision(firstLayerDecision)
                 .nodeScores(List.of())
+                .build();
+    }
+
+    /**
+     * 构建统一的 SYSTEM 路由结果。
+     *
+     * @param question           当前子问题
+     * @param firstLayerDecision 第一层打分及判定结果
+     * @param systemScore        第一层 SYSTEM 分数
+     * @return 不启用全库检索的 SYSTEM 意图
+     */
+    private SubQuestionIntent systemIntent(
+            String question,
+            FirstLayerIntentDecision firstLayerDecision,
+            double systemScore) {
+        return SubQuestionIntent.builder()
+                .subQuestion(question)
+                .routeKind(IntentKind.SYSTEM)
+                .globalKbFallback(false)
+                .firstLayerDecision(firstLayerDecision)
+                .nodeScores(List.of(NodeScore.builder()
+                        .node(IntentNode.builder()
+                                .id("SYSTEM")
+                                .name("SYSTEM")
+                                .kind(IntentKind.SYSTEM)
+                                .build())
+                        .score(systemScore)
+                        .build()))
                 .build();
     }
 
@@ -185,5 +218,15 @@ public class IntentResolver {
      */
     private double defaultMinScore(Double value) {
         return value == null ? 0.45D : value;
+    }
+
+    /**
+     * 获取全库检索相关性下限。
+     *
+     * @param value 配置的全库检索最低分
+     * @return 配置值；未配置时使用 0.20
+     */
+    private double defaultGlobalMinScore(Double value) {
+        return value == null ? 0.20D : value;
     }
 }

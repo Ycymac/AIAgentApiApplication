@@ -19,6 +19,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * 检索执行总编排器。
@@ -51,9 +52,28 @@ public class RetrievalEngine {
      * @return 检索上下文。若没有拿到有效知识库分块，则返回空上下文。
      */
     public RetrievalContext retrieve(SearchContext context) {
+        return retrieve(context, RerankMode.PER_CHANNEL, 1.0D);
+    }
+
+    /**
+     * 执行一次可选择 rerank 策略的检索流程。
+     * <p>
+     * 该重载仅供评测链路使用；生产入口继续调用无策略参数的默认方法。
+     *
+     * @param context 检索上下文。
+     * @param rerankMode rerank 模式。
+     * @param rerankKeepRatio 统一 rerank 的候选保留比例。
+     * @return 检索上下文。
+     */
+    public RetrievalContext retrieve(SearchContext context,
+                                     RerankMode rerankMode,
+                                     double rerankKeepRatio) {
         if (CollUtil.isEmpty(context.getIntents())) {
             return RetrievalContext.empty();
         }
+
+        RerankMode resolvedMode = rerankMode == null ? RerankMode.PER_CHANNEL : rerankMode;
+        validateKeepRatio(resolvedMode, rerankKeepRatio);
 
         // 所有启用通道先完成任务规划，再对整次请求统一执行模型映射和批量向量化。
         List<ChannelPlan> channelPlans = searchChannels.stream()
@@ -79,8 +99,9 @@ public class RetrievalEngine {
             return RetrievalContext.empty();
         }
 
-        // 在通道结果进入合并逻辑前，先基于主问题对每个通道结果分别执行 rerank。
-        List<SearchChannelResult> rerankedResults = rerankChannelResults(context, results);
+        List<SearchChannelResult> rerankedResults = resolvedMode == RerankMode.UNIFIED
+                ? rerankUnifiedResults(context, results, rerankKeepRatio)
+                : rerankChannelResults(context, results);
 
         // 将各通道携带的“意图 -> chunks”映射合并，并在意图维度做去重和排序。
         Map<String, List<RetrievedChunk>> intentChunks = mergeIntentChunks(rerankedResults);
@@ -94,6 +115,13 @@ public class RetrievalEngine {
                 .intentChunks(intentChunks)
                 .channelResults(rerankedResults)
                 .build();
+    }
+
+    private void validateKeepRatio(RerankMode mode, double keepRatio) {
+        if (mode == RerankMode.UNIFIED
+                && (!Double.isFinite(keepRatio) || keepRatio <= 0D || keepRatio > 1D)) {
+            throw new IllegalArgumentException("rerankKeepRatio must be in (0, 1]");
+        }
     }
 
     /**
@@ -111,6 +139,66 @@ public class RetrievalEngine {
         return results.stream()
                 .map(result -> rerankSingleChannelResult(context.getMainQuestion(), result))
                 .toList();
+    }
+
+    /**
+     * 将所有通道候选先去重，再执行一次统一 rerank，并把结果投影回原通道与意图结构。
+     */
+    private List<SearchChannelResult> rerankUnifiedResults(SearchContext context,
+                                                           List<SearchChannelResult> results,
+                                                           double keepRatio) {
+        if (rerankClient == null || StrUtil.isBlank(context.getMainQuestion())) {
+            return results;
+        }
+
+        List<RetrievedChunk> candidates = deduplicateAndSort(results.stream()
+                .flatMap(result -> result.getChunks().stream())
+                .toList());
+        if (CollUtil.isEmpty(candidates)) {
+            return results;
+        }
+
+        int topN = Math.max(1, (int) Math.ceil(candidates.size() * keepRatio));
+        try {
+            List<RetrievedChunk> rerankedChunks = rerankClient.rerank(
+                    context.getMainQuestion(), candidates, Math.min(topN, candidates.size()));
+            if (CollUtil.isEmpty(rerankedChunks)) {
+                return results;
+            }
+            return results.stream()
+                    .map(result -> projectUnifiedRerank(result, rerankedChunks))
+                    .toList();
+        } catch (Exception ex) {
+            return results;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private SearchChannelResult projectUnifiedRerank(SearchChannelResult result,
+                                                      List<RetrievedChunk> rerankedChunks) {
+        Set<String> channelChunkKeys = result.getChunks().stream()
+                .map(this::resolveChunkKey)
+                .collect(java.util.stream.Collectors.toSet());
+        List<RetrievedChunk> channelChunks = rerankedChunks.stream()
+                .filter(chunk -> channelChunkKeys.contains(resolveChunkKey(chunk)))
+                .toList();
+
+        Map<String, Object> metadata = new LinkedHashMap<>(result.getMetadata());
+        Object rawIntentChunks = metadata.get(AbstractVectorSearchChannel.METADATA_INTENT_CHUNKS);
+        if (rawIntentChunks instanceof Map<?, ?> rawMap) {
+            metadata.put(
+                    AbstractVectorSearchChannel.METADATA_INTENT_CHUNKS,
+                    reorderIntentChunksByRerank(rawMap, rerankedChunks));
+        }
+
+        return SearchChannelResult.builder()
+                .channelType(result.getChannelType())
+                .channelName(result.getChannelName())
+                .chunks(channelChunks)
+                .confidence(result.getConfidence())
+                .latencyMs(result.getLatencyMs())
+                .metadata(metadata)
+                .build();
     }
 
     /**
@@ -275,5 +363,10 @@ public class RetrievalEngine {
     }
 
     private record ChannelPlan(SearchChannel channel, List<SearchTask> tasks) {
+    }
+
+    public enum RerankMode {
+        PER_CHANNEL,
+        UNIFIED
     }
 }
