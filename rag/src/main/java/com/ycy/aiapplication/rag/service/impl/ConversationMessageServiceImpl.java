@@ -6,14 +6,11 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.ycy.aiapplication.rag.control.vo.ConversationMessageVO;
 import com.ycy.aiapplication.rag.dao.entity.ConversationDO;
 import com.ycy.aiapplication.rag.dao.entity.ConversationMessageDO;
-import com.ycy.aiapplication.rag.dao.entity.ConversationSummaryDO;
 import com.ycy.aiapplication.rag.dao.mapper.ConversationMapper;
 import com.ycy.aiapplication.rag.dao.mapper.ConversationMessageMapper;
-import com.ycy.aiapplication.rag.dao.mapper.ConversationSummaryMapper;
 import com.ycy.aiapplication.rag.enums.ConversationMessageOrder;
 import com.ycy.aiapplication.rag.service.ConversationMessageService;
 import com.ycy.aiapplication.rag.service.bo.ConversationMessageBO;
-import com.ycy.aiapplication.rag.service.bo.ConversationSummaryBO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -27,7 +24,6 @@ public class ConversationMessageServiceImpl implements ConversationMessageServic
 
     private final ConversationMapper conversationMapper;
     private final ConversationMessageMapper conversationMessageMapper;
-    private final ConversationSummaryMapper conversationSummaryMapper;
 
     @Override
     public String addMessage(ConversationMessageBO conversationMessage) {
@@ -85,11 +81,5 @@ public class ConversationMessageServiceImpl implements ConversationMessageServic
         }
 
         return result;
-    }
-
-    @Override
-    public void addMessageSummary(ConversationSummaryBO conversationSummary) {
-        ConversationSummaryDO conversationSummaryDO = BeanUtil.toBean(conversationSummary, ConversationSummaryDO.class);
-        conversationSummaryMapper.insert(conversationSummaryDO);
     }
 }

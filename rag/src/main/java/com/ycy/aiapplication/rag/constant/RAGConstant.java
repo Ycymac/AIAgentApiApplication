@@ -63,6 +63,12 @@ public class RAGConstant {
     public static final int DEFAULT_TOP_K = 10;
 
     /**
+     * 查询改写在完整历史下仍无法消解指代时，生产对话和评测接口共用的引导提示。
+     */
+    public static final String NEED_MORE_CONTEXT_PROMPT =
+            "当前对话上下文仍不足以确认你的指代对象，请补充具体名称或问题背景。";
+
+    /**
      * 检索时的 TopK 扩展倍数
      */
     public static final int SEARCH_TOP_K_MULTIPLIER = 3;

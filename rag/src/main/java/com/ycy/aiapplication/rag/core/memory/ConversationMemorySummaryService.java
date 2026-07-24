@@ -25,15 +25,6 @@ public interface ConversationMemorySummaryService {
     /**
      * 判断是否需要执行摘要压缩，需要的话使用CompletableFuture异步执行
      */
-    void compressIfNeeded(String conversationId, String userId, ChatMessage message);
+    void compressIfNeeded(String conversationId, String userId, ChatMessage message, String messageId);
 
-    /**
-     * 加载最新总结
-     */
-    ChatMessage loadLatestSummary(String conversationId, String userId);
-
-    /**
-     * 为摘要总结添加“摘要”前缀
-     */
-    ChatMessage decorateIfNeeded(ChatMessage summary);
 }

@@ -24,7 +24,7 @@ public interface QueryRewriteService {
      */
     default RewriteResult rewriteWithSplit(String userQuestion) {
         String rewritten = rewrite(userQuestion);
-        return new RewriteResult(rewritten, List.of(rewritten));
+        return RewriteResult.success(rewritten, List.of(rewritten));
     }
 
     /**
@@ -33,5 +33,11 @@ public interface QueryRewriteService {
      */
     default RewriteResult rewriteWithSplit(String userQuestion, List<ChatMessage> history) {
         return rewriteWithSplit(userQuestion);
+    }
+
+    default RewriteResult rewriteWithSplit(String userQuestion,
+                                           List<ChatMessage> history,
+                                           boolean historyComplete) {
+        return rewriteWithSplit(userQuestion, history);
     }
 }

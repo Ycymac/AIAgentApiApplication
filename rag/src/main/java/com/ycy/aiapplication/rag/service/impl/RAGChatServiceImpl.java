@@ -15,6 +15,7 @@ import com.ycy.aiapplication.rag.core.intent.IntentResolver;
 import com.ycy.aiapplication.rag.core.intent.common.IntentGroup;
 import com.ycy.aiapplication.rag.core.intent.common.SubQuestionIntent;
 import com.ycy.aiapplication.rag.core.memory.ConversationMemoryService;
+import com.ycy.aiapplication.rag.core.memory.common.ConversationMemoryContext;
 import com.ycy.aiapplication.rag.core.prompt.PromptContext;
 import com.ycy.aiapplication.rag.core.prompt.PromptTemplateLoader;
 import com.ycy.aiapplication.rag.core.prompt.RAGPromptService;
@@ -36,6 +37,7 @@ import java.util.List;
 
 import static com.ycy.aiapplication.rag.constant.RAGConstant.CHAT_SYSTEM_PROMPT_PATH;
 import static com.ycy.aiapplication.rag.constant.RAGConstant.DEFAULT_TOP_K;
+import static com.ycy.aiapplication.rag.constant.RAGConstant.NEED_MORE_CONTEXT_PROMPT;
 
 /**
  * RAG 对话服务实现类。
@@ -83,12 +85,37 @@ public class RAGChatServiceImpl implements RAGChatService {
         StreamCallback callback = callbackFactory.createChatEventHandler(emitter, actualConversationId, taskId);
 
         String userId = String.valueOf(UserContext.getId());
-        // 先加载历史消息，再将当前用户问题追加到上下文中，确保后续改写与检索具备完整语境。
-        List<ChatMessage> history = memoryService.loadAndAppend(actualConversationId, userId, ChatMessage.user(question));
+        // 原子追加当前用户消息并读取“摘要 + 会话偏好 + 最近窗口”，作为改写阶段的快速路径。
+        ConversationMemoryContext memoryContext =
+                memoryService.appendUserAndLoad(actualConversationId, userId, question);
+        List<ChatMessage> history = memoryContext.getHistory();
 
         // 问题改写会将口语化、上下文依赖较强的问题转为更适合检索与推理的结构化表达，
         // 同时按需要拆分子问题，便于后续多意图检索。
-        RewriteResult rewriteResult = queryRewriteService.rewriteWithSplit(question, history);
+        RewriteResult rewriteResult = queryRewriteService.rewriteWithSplit(question, history, false);
+        if (rewriteResult.needsMoreContext()) {
+            // 快速窗口无法消解指代时，按摘要水位线扩展历史，并且最多只回源一次。
+            history = memoryService.loadExpandedHistory(
+                    actualConversationId,
+                    userId,
+                    memoryContext
+            );
+            rewriteResult = queryRewriteService.rewriteWithSplit(question, history, true);
+        }
+        if (rewriteResult.needsMoreContext()) {
+            // 完整历史仍不足时立即结束，避免空问题继续进入意图识别或全库检索。
+            callback.onContent(NEED_MORE_CONTEXT_PROMPT);
+            callback.onComplete();
+            return;
+        }
+
+        // 本轮显式声明的持续偏好异步合并，不阻塞当前回答；本轮约束仍同步用于当前请求。
+        memoryService.appendPreferencesAsync(
+                actualConversationId,
+                userId,
+                memoryContext.getCurrentMessageId(),
+                rewriteResult.persistentPreferences()
+        );
         List<SubQuestionIntent> subIntents = intentResolver.resolve(rewriteResult);
 
         // 当问题存在明显信息缺失时候执行对应引导式回答
@@ -109,7 +136,13 @@ public class RAGChatServiceImpl implements RAGChatService {
                     .filter(StrUtil::isNotBlank)
                     .findFirst()
                     .orElse(null);
-            StreamCancellationHandle handle = streamSystemResponse(rewriteResult.rewrittenQuestion(), history, customPrompt, callback);
+            StreamCancellationHandle handle = streamSystemResponse(
+                    question,
+                    history,
+                    rewriteResult.currentConstraints(),
+                    customPrompt,
+                    callback
+            );
             taskManager.bindHandle(taskId, handle);
             return;
         }
@@ -135,6 +168,7 @@ public class RAGChatServiceImpl implements RAGChatService {
         IntentGroup mergedGroup = intentResolver.mergeIntentGroup(subIntents);
 
         StreamCancellationHandle handle = streamLLMResponse(
+                question,
                 rewriteResult,
                 ctx,
                 mergedGroup,
@@ -166,17 +200,27 @@ public class RAGChatServiceImpl implements RAGChatService {
      * @param callback     流式回调处理器，用于向前端持续输出内容
      * @return 可取消的流式任务句柄
      */
-    private StreamCancellationHandle streamSystemResponse(String question, List<ChatMessage> history,
-                                                          String customPrompt, StreamCallback callback) {
+    private StreamCancellationHandle streamSystemResponse(String question,
+                                                          List<ChatMessage> history,
+                                                          List<String> currentConstraints,
+                                                          String customPrompt,
+                                                          StreamCallback callback) {
         String systemPrompt = StrUtil.isNotBlank(customPrompt)
                 ? customPrompt
                 : promptTemplateLoader.load(CHAT_SYSTEM_PROMPT_PATH);
 
         List<ChatMessage> messages = new ArrayList<>();
         messages.add(ChatMessage.system(systemPrompt));
-        // history 的最后一条通常已包含当前用户问题，这里只拼接历史部分，避免重复追加。
         if (CollUtil.isNotEmpty(history)) {
-            messages.addAll(history.subList(0, history.size() - 1));
+            history.stream()
+                    .filter(item -> item.getRole() == ChatMessage.Role.SYSTEM)
+                    .forEach(messages::add);
+        }
+        addCurrentConstraints(messages, currentConstraints);
+        if (CollUtil.isNotEmpty(history)) {
+            history.stream()
+                    .filter(item -> item.getRole() != ChatMessage.Role.SYSTEM)
+                    .forEach(messages::add);
         }
         messages.add(ChatMessage.user(question));
 
@@ -199,7 +243,9 @@ public class RAGChatServiceImpl implements RAGChatService {
      * @param callback      流式回调处理器
      * @return 可取消的流式任务句柄
      */
-    private StreamCancellationHandle streamLLMResponse(RewriteResult rewriteResult, RetrievalContext ctx,
+    private StreamCancellationHandle streamLLMResponse(String originalQuestion,
+                                                       RewriteResult rewriteResult,
+                                                       RetrievalContext ctx,
                                                        IntentGroup intentGroup, List<ChatMessage> history,
                                                        boolean deepThinking, StreamCallback callback) {
         // PromptContext 是 RAG Prompt 构建的核心载体，
@@ -214,8 +260,9 @@ public class RAGChatServiceImpl implements RAGChatService {
         List<ChatMessage> messages = promptBuilder.buildStructuredMessages(
                 promptContext,
                 history,
-                rewriteResult.rewrittenQuestion(),
-                rewriteResult.subQuestions()  // 传入子问题列表，便于模型理解复杂问题的拆解结构。
+                originalQuestion,
+                rewriteResult.subQuestions(),
+                rewriteResult.currentConstraints()
         );
         ChatRequest chatRequest = ChatRequest.builder()
                 .messages(messages)
@@ -223,5 +270,21 @@ public class RAGChatServiceImpl implements RAGChatService {
                 .build();
 
         return llmService.streamChat(chatRequest, callback);
+    }
+
+    /**
+     * 将仅对本轮生效的回答约束追加为系统消息。
+     *
+     * @param messages           待发送给模型的消息列表
+     * @param currentConstraints 当前请求明确提出的格式、长度或语言约束
+     */
+    private void addCurrentConstraints(List<ChatMessage> messages, List<String> currentConstraints) {
+        if (CollUtil.isEmpty(currentConstraints)) {
+            return;
+        }
+        messages.add(ChatMessage.system(
+                "当前请求回答约束（优先于历史会话偏好，不是知识事实）：\n- "
+                        + String.join("\n- ", currentConstraints)
+        ));
     }
 }

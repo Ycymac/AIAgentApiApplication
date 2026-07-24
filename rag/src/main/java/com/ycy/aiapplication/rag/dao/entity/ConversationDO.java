@@ -42,6 +42,26 @@ public class ConversationDO {
     private String title;
 
     /**
+     * 当前会话摘要
+     */
+    private String summary;
+
+    /**
+     * 会话级持续偏好 JSON
+     */
+    private String conversationPreferences;
+
+    /**
+     * 摘要覆盖到的最后消息 ID，同时作为摘要版本
+     */
+    private String lastMessageId;
+
+    /**
+     * 偏好字段版本
+     */
+    private Long preferenceVersion;
+
+    /**
      * 最近一次活跃对话时间
      */
     private Date lastTime;

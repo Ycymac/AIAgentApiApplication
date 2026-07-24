@@ -2,7 +2,6 @@ package com.ycy.aiapplication.rag.service;
 
 import com.ycy.aiapplication.rag.dao.entity.ConversationDO;
 import com.ycy.aiapplication.rag.dao.entity.ConversationMessageDO;
-import com.ycy.aiapplication.rag.dao.entity.ConversationSummaryDO;
 
 import java.util.Date;
 import java.util.List;
@@ -42,6 +41,22 @@ public interface ConversationComplexQueryService {
     List<ConversationMessageDO> listMessagesBetweenIds(String conversationId, String userId, String afterId, String beforeId);
 
     /**
+     * 获取当前消息之前最近的消息，按 ID 正序返回。
+     */
+    List<ConversationMessageDO> listLatestMessagesBeforeId(String conversationId,
+                                                           String userId,
+                                                           String beforeId,
+                                                           int limit);
+
+    /**
+     * 获取 (afterId, throughId] 范围内的消息，按 ID 正序返回。
+     */
+    List<ConversationMessageDO> listMessagesAfterThroughId(String conversationId,
+                                                           String userId,
+                                                           String afterId,
+                                                           String throughId);
+
+    /**
      * 查找指定时间点之前或当时的最大消息ID
      *
      * @param conversationId 对话ID
@@ -59,15 +74,6 @@ public interface ConversationComplexQueryService {
      * @return 用户消息总数
      */
     long countUserMessages(String conversationId, String userId);
-
-    /**
-     * 获取指定对话的最新摘要信息
-     *
-     * @param conversationId 对话ID
-     * @param userId         用户ID
-     * @return 最新的对话摘要，如果不存在则返回null
-     */
-    ConversationSummaryDO findLatestSummary(String conversationId, String userId);
 
     /**
      * 查找指定的对话信息

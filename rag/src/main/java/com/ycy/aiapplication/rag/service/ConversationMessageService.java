@@ -3,7 +3,6 @@ package com.ycy.aiapplication.rag.service;
 import com.ycy.aiapplication.rag.control.vo.ConversationMessageVO;
 import com.ycy.aiapplication.rag.enums.ConversationMessageOrder;
 import com.ycy.aiapplication.rag.service.bo.ConversationMessageBO;
-import com.ycy.aiapplication.rag.service.bo.ConversationSummaryBO;
 
 import java.util.List;
 
@@ -27,10 +26,4 @@ public interface ConversationMessageService {
      */
     List<ConversationMessageVO> listMessages(String conversationId, String userId, Integer limit, ConversationMessageOrder order);
 
-    /**
-     * 添加对话摘要
-     *
-     * @param conversationSummary 对话摘要内容
-     */
-    void addMessageSummary(ConversationSummaryBO conversationSummary);
 }

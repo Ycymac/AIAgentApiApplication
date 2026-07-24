@@ -42,4 +42,17 @@ public interface ConversationService {
      * @param conversationId 会话 ID
      */
     void delete(String conversationId);
+
+    int compareAndSetPreferences(String conversationId,
+                                 String userId,
+                                 long expectedPreferenceVersion,
+                                 String preferencesJson);
+
+    int publishMemory(String conversationId,
+                      String userId,
+                      String snapshotLastMessageId,
+                      long expectedPreferenceVersion,
+                      String summary,
+                      String preferencesJson,
+                      String targetMessageId);
 }

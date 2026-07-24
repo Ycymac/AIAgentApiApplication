@@ -38,6 +38,13 @@ public interface ConversationMemoryStoreService {
      */
     List<ChatMessage> loadHistory(String conversationId, String userId);
 
+    List<ChatMessage> loadHistoryBefore(String conversationId, String userId, String beforeMessageId);
+
+    List<ChatMessage> loadHistoryBetween(String conversationId,
+                                         String userId,
+                                         String afterMessageId,
+                                         String beforeMessageId);
+
     /**
      * 追加消息到对话历史并返回消息ID
      *

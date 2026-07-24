@@ -185,6 +185,38 @@ public class ConversationServiceImpl implements ConversationService {
         );
     }
 
+    @Override
+    public int compareAndSetPreferences(String conversationId,
+                                        String userId,
+                                        long expectedPreferenceVersion,
+                                        String preferencesJson) {
+        return conversationMapper.compareAndSetPreferences(
+                conversationId,
+                userId,
+                expectedPreferenceVersion,
+                preferencesJson
+        );
+    }
+
+    @Override
+    public int publishMemory(String conversationId,
+                             String userId,
+                             String snapshotLastMessageId,
+                             long expectedPreferenceVersion,
+                             String summary,
+                             String preferencesJson,
+                             String targetMessageId) {
+        return conversationMapper.publishMemory(
+                conversationId,
+                userId,
+                snapshotLastMessageId,
+                expectedPreferenceVersion,
+                summary,
+                preferencesJson,
+                targetMessageId
+        );
+    }
+
     private String generateTitleFromQuestion(String question) {
         int maxLen = memoryProperties.getTitleMaxLength();
         if (maxLen <= 0) {

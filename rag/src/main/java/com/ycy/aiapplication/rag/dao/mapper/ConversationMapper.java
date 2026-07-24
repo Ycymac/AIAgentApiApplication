@@ -20,7 +20,45 @@ package com.ycy.aiapplication.rag.dao.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.ycy.aiapplication.rag.dao.entity.ConversationDO;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Update;
 
 @Mapper
 public interface ConversationMapper extends BaseMapper<ConversationDO> {
+
+    @Update("""
+            UPDATE conversation
+            SET conversation_preferences = #{preferencesJson},
+                preference_version = preference_version + 1,
+                update_time = NOW()
+            WHERE conversation_id = #{conversationId}
+              AND user_id = #{userId}
+              AND deleted = 0
+              AND preference_version = #{expectedPreferenceVersion}
+            """)
+    int compareAndSetPreferences(@Param("conversationId") String conversationId,
+                                 @Param("userId") String userId,
+                                 @Param("expectedPreferenceVersion") long expectedPreferenceVersion,
+                                 @Param("preferencesJson") String preferencesJson);
+
+    @Update("""
+            UPDATE conversation
+            SET summary = #{summary},
+                conversation_preferences = #{preferencesJson},
+                last_message_id = #{targetMessageId},
+                preference_version = preference_version + 1,
+                update_time = NOW()
+            WHERE conversation_id = #{conversationId}
+              AND user_id = #{userId}
+              AND deleted = 0
+              AND last_message_id <=> #{snapshotLastMessageId}
+              AND preference_version = #{expectedPreferenceVersion}
+            """)
+    int publishMemory(@Param("conversationId") String conversationId,
+                      @Param("userId") String userId,
+                      @Param("snapshotLastMessageId") String snapshotLastMessageId,
+                      @Param("expectedPreferenceVersion") long expectedPreferenceVersion,
+                      @Param("summary") String summary,
+                      @Param("preferencesJson") String preferencesJson,
+                      @Param("targetMessageId") String targetMessageId);
 }

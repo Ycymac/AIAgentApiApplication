@@ -13,6 +13,7 @@ import com.ycy.aiapplication.infrastructure.ai.toolkit.LLMResponseCleaner;
 import com.ycy.aiapplication.rag.config.RAGReWriteProperties;
 import com.ycy.aiapplication.rag.core.prompt.PromptTemplateLoader;
 import com.ycy.aiapplication.rag.core.rewrite.common.RewriteResult;
+import com.ycy.aiapplication.rag.core.rewrite.common.RewriteStatus;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -58,15 +59,30 @@ public class MultiQuestionRewriteService implements QueryRewriteService {
      */
     @Override
     public RewriteResult rewriteWithSplit(String userQuestion, List<ChatMessage> history) {
+        return rewriteWithSplit(userQuestion, history, false);
+    }
+
+    /**
+     * 使用指定范围的会话历史执行问题改写、拆分、约束及偏好提取。
+     *
+     * @param userQuestion    当前用户问题
+     * @param history         本次允许模型读取的会话历史
+     * @param historyComplete true 表示已经加载摘要水位线之后的全部可用历史
+     * @return 包含改写状态、子问题、当前约束及会话偏好的结构化结果
+     */
+    @Override
+    public RewriteResult rewriteWithSplit(String userQuestion,
+                                          List<ChatMessage> history,
+                                          boolean historyComplete) {
         if (!ragRewriteProperties.getQueryRewriteEnabled()) {
             String normalized = queryTermMappingService.normalize(userQuestion);
             List<String> subs = ruleBasedSplit(normalized);
-            return new RewriteResult(normalized, subs);
+            return RewriteResult.success(normalized, subs);
         }
 
         String normalizedQuestion = queryTermMappingService.normalize(userQuestion);
 
-        return callLLMRewriteAndSplit(normalizedQuestion, userQuestion, history);
+        return callLLMRewriteAndSplit(normalizedQuestion, userQuestion, history, historyComplete);
     }
 
     /**
@@ -78,19 +94,29 @@ public class MultiQuestionRewriteService implements QueryRewriteService {
         if (!ragRewriteProperties.getQueryRewriteEnabled()) {
             String normalized = queryTermMappingService.normalize(userQuestion);
             List<String> subs = ruleBasedSplit(normalized);
-            return new RewriteResult(normalized, subs);
+            return RewriteResult.success(normalized, subs);
         }
         //开关开启，归一化术语之后调用大模型拆分
         String normalizedQuestion = queryTermMappingService.normalize(userQuestion);
 
-        return callLLMRewriteAndSplit(normalizedQuestion, userQuestion, List.of());
+        return callLLMRewriteAndSplit(normalizedQuestion, userQuestion, List.of(), true);
     }
 
+    /**
+     * 调用大模型完成统一改写，并在调用或解析失败时回退到归一化问题。
+     *
+     * @param normalizedQuestion 术语归一化后的问题
+     * @param originalQuestion   用户原始问题，仅用于日志定位
+     * @param history            本次提供给模型的历史
+     * @param historyComplete    历史是否已经完整扩展
+     * @return 可直接进入意图识别的改写结果
+     */
     private RewriteResult callLLMRewriteAndSplit(String normalizedQuestion,
                                                  String originalQuestion,
-                                                 List<ChatMessage> history) {
+                                                 List<ChatMessage> history,
+                                                 boolean historyComplete) {
         String systemPrompt = promptTemplateLoader.load(QUERY_REWRITE_AND_SPLIT_PROMPT_PATH);
-        ChatRequest req = buildRewriteRequest(systemPrompt, normalizedQuestion, history);
+        ChatRequest req = buildRewriteRequest(systemPrompt, normalizedQuestion, history, historyComplete);
 
         try {
             String raw = llmService.chat(req);
@@ -113,7 +139,7 @@ public class MultiQuestionRewriteService implements QueryRewriteService {
         }
 
         // 统一兜底逻辑
-        return new RewriteResult(normalizedQuestion, List.of(normalizedQuestion));
+        return RewriteResult.success(normalizedQuestion, List.of(normalizedQuestion));
     }
 
     /**
@@ -121,32 +147,56 @@ public class MultiQuestionRewriteService implements QueryRewriteService {
      * @param systemPrompt 提示词
      * @param question 问题
      * @param history 历史消息（问答都包含）
+     * @param historyComplete 历史是否已经完整扩展
+     * @return 关闭随机采样并携带历史范围声明的改写请求
      */
     private ChatRequest buildRewriteRequest(String systemPrompt,
                                             String question,
-                                            List<ChatMessage> history) {
+                                            List<ChatMessage> history,
+                                            boolean historyComplete) {
         List<ChatMessage> messages = new ArrayList<>();
         //体统提示词不为空，添加到消息当中
         if (StrUtil.isNotBlank(systemPrompt)) {
             messages.add(ChatMessage.system(systemPrompt));
         }
 
-        // 只保留最近 1-2 轮的 User 和 Assistant 消息
-        // 过滤掉 System 摘要（压缩历史用），避免 Token 浪费
         if (CollUtil.isNotEmpty(history)) {
-            List<ChatMessage> recentHistory = history.stream()
+            // 摘要和会话偏好属于系统级记忆，完整保留在普通对话历史之前。
+            history.stream()
+                    .filter(msg -> msg.getRole() == ChatMessage.Role.SYSTEM)
+                    .forEach(messages::add);
+
+            // 普通问答只取最近配置窗口，控制改写调用的上下文长度。
+            List<ChatMessage> conversationalHistory = history.stream()
                     .filter(msg -> msg.getRole() == ChatMessage.Role.USER
                             || msg.getRole() == ChatMessage.Role.ASSISTANT)
-                    .skip(Math.max(0, history.size() - 4))  // 最多保留最近 4 条消息（2 轮对话）
                     .toList();
+            int maxMessages = Math.max(
+                    1,
+                    java.util.Optional.ofNullable(ragRewriteProperties.getQueryRewriteMaxHistoryMessages())
+                            .orElse(4)
+            );
+            List<ChatMessage> recentHistory = conversationalHistory.stream()
+                    .skip(Math.max(0, conversationalHistory.size() - maxMessages))
+                    .toList();
+            recentHistory = trimByCharacters(
+                    recentHistory,
+                    java.util.Optional.ofNullable(ragRewriteProperties.getQueryRewriteMaxHistoryChars())
+                            .orElse(500)
+            );
             messages.addAll(recentHistory);
         }
 
+        // 明确历史范围，防止模型在已经完成扩展后再次要求无意义的历史回溯。
+        messages.add(ChatMessage.system(historyComplete
+                ? "已提供摘要水位线之后的全部可用历史；不得再次因历史窗口不足请求回溯。"
+                : "当前只提供最近历史；只有确实无法完成指代消解时才返回 NEED_MORE_CONTEXT。"));
         messages.add(ChatMessage.user(question));
 
         return ChatRequest.builder()
                 .messages(messages)
-                .temperature(0.1D)
+                // 改写结果参与后续路由，使用零温度保证同一上下文尽量产生一致结构。
+                .temperature(0D)
                 .topP(0.3D)
                 .thinking(false)
                 .build();
@@ -179,31 +229,99 @@ public class MultiQuestionRewriteService implements QueryRewriteService {
                 return null;
             }
             JsonObject obj = root.getAsJsonObject();
+            // status 决定后续是正常进入意图识别，还是回源加载更完整历史。
+            RewriteStatus status = parseStatus(obj);
             String rewrite = obj.has("rewrite") ? obj.get("rewrite").getAsString().trim() : "";
-            List<String> subs = new ArrayList<>();
-            if (obj.has("sub_questions") && obj.get("sub_questions").isJsonArray()) {
-                JsonArray arr = obj.getAsJsonArray("sub_questions");
-                for (JsonElement el : arr) {
-                    //检查是否为原始类型（JsonPrimitive），同时是字符串原始类型
-                    if (el.isJsonPrimitive() && el.getAsJsonPrimitive().isString()) {
-                        String s = el.getAsString().trim();
-                        if (StrUtil.isNotBlank(s)) {
-                            subs.add(s);
-                        }
-                    }
-                }
-            }
-            if (StrUtil.isBlank(rewrite)) {
+            List<String> subs = parseStringArray(obj, "sub_questions");
+            List<String> currentConstraints = parseStringArray(obj, "current_constraints");
+            List<String> persistentPreferences = parseStringArray(obj, "persistent_preferences");
+            if (status == RewriteStatus.SUCCESS && StrUtil.isBlank(rewrite)) {
                 return null;
             }
-            if (CollUtil.isEmpty(subs)) {
-                subs = List.of(rewrite);
+            if (status == RewriteStatus.NEED_MORE_CONTEXT && StrUtil.isBlank(rewrite)) {
+                rewrite = "";
             }
-            return new RewriteResult(rewrite, subs);
+            if (CollUtil.isEmpty(subs)) {
+                subs = StrUtil.isBlank(rewrite) ? List.of() : List.of(rewrite);
+            }
+            return new RewriteResult(
+                    status,
+                    rewrite,
+                    subs,
+                    currentConstraints,
+                    persistentPreferences
+            );
         } catch (Exception e) {
             log.warn("解析改写+拆分结果失败，raw={}", raw, e);
             return null;
         }
+    }
+
+    /**
+     * 解析改写状态，并兼容尚未返回 status 字段的旧模型输出。
+     *
+     * @param obj 改写模型返回的 JSON 对象
+     * @return 合法状态；缺失或非法时按旧协议回退为 SUCCESS
+     */
+    private RewriteStatus parseStatus(JsonObject obj) {
+        if (!obj.has("status") || obj.get("status").isJsonNull()) {
+            return RewriteStatus.SUCCESS;
+        }
+        try {
+            return RewriteStatus.valueOf(obj.get("status").getAsString().trim().toUpperCase());
+        } catch (Exception ex) {
+            return RewriteStatus.SUCCESS;
+        }
+    }
+
+    /**
+     * 提取并去重指定字符串数组字段。
+     *
+     * @param obj   改写模型返回的 JSON 对象
+     * @param field 待提取字段名
+     * @return 去除空值和重复项后的不可变列表
+     */
+    private List<String> parseStringArray(JsonObject obj, String field) {
+        if (!obj.has(field) || !obj.get(field).isJsonArray()) {
+            return List.of();
+        }
+        List<String> values = new ArrayList<>();
+        JsonArray array = obj.getAsJsonArray(field);
+        for (JsonElement element : array) {
+            if (element.isJsonPrimitive() && element.getAsJsonPrimitive().isString()) {
+                String value = element.getAsString().trim();
+                if (StrUtil.isNotBlank(value) && !values.contains(value)) {
+                    values.add(value);
+                }
+            }
+        }
+        return List.copyOf(values);
+    }
+
+    /**
+     * 从最新消息向前保留不超过字符预算的会话历史。
+     *
+     * @param history       已按时间正序排列的普通问答历史
+     * @param maxCharacters 最大字符预算
+     * @return 保持原时间顺序的截断结果
+     */
+    private List<ChatMessage> trimByCharacters(List<ChatMessage> history, int maxCharacters) {
+        if (history.isEmpty() || maxCharacters <= 0) {
+            return List.of();
+        }
+        List<ChatMessage> reversed = new ArrayList<>();
+        int used = 0;
+        for (int index = history.size() - 1; index >= 0; index--) {
+            ChatMessage message = history.get(index);
+            int length = StrUtil.length(message.getContent());
+            if (!reversed.isEmpty() && used + length > maxCharacters) {
+                break;
+            }
+            reversed.add(message);
+            used += length;
+        }
+        java.util.Collections.reverse(reversed);
+        return List.copyOf(reversed);
     }
 
     /**

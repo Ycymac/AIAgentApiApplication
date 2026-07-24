@@ -7,7 +7,9 @@ import com.ycy.aiapplication.rag.config.MemoryProperties;
 import com.ycy.aiapplication.rag.control.request.ConversationCreateRequest;
 import com.ycy.aiapplication.rag.control.vo.ConversationMessageVO;
 import com.ycy.aiapplication.rag.core.memory.ConversationMemoryStoreService;
+import com.ycy.aiapplication.rag.dao.entity.ConversationMessageDO;
 import com.ycy.aiapplication.rag.enums.ConversationMessageOrder;
+import com.ycy.aiapplication.rag.service.ConversationComplexQueryService;
 import com.ycy.aiapplication.rag.service.ConversationMessageService;
 import com.ycy.aiapplication.rag.service.ConversationService;
 import com.ycy.aiapplication.rag.service.bo.ConversationMessageBO;
@@ -26,6 +28,7 @@ public class ConversationMemoryStoreServiceImpl implements ConversationMemorySto
 
     private final ConversationService conversationService;
     private final ConversationMessageService conversationMessageService;
+    private final ConversationComplexQueryService complexQueryService;
     private final MemoryProperties memoryProperties;
 
     @Override
@@ -46,6 +49,31 @@ public class ConversationMemoryStoreServiceImpl implements ConversationMemorySto
                 .collect(Collectors.toList());
 
         return normalizeHistory(result);
+    }
+
+    @Override
+    public List<ChatMessage> loadHistoryBefore(String conversationId, String userId, String beforeMessageId) {
+        List<ConversationMessageDO> records = complexQueryService.listLatestMessagesBeforeId(
+                conversationId,
+                userId,
+                beforeMessageId,
+                resolveMaxHistoryMessages()
+        );
+        return normalizeHistory(toChatMessages(records));
+    }
+
+    @Override
+    public List<ChatMessage> loadHistoryBetween(String conversationId,
+                                                String userId,
+                                                String afterMessageId,
+                                                String beforeMessageId) {
+        List<ConversationMessageDO> records = complexQueryService.listMessagesBetweenIds(
+                conversationId,
+                userId,
+                afterMessageId,
+                beforeMessageId
+        );
+        return normalizeHistory(toChatMessages(records));
     }
 
     @Override
@@ -85,6 +113,20 @@ public class ConversationMemoryStoreServiceImpl implements ConversationMemorySto
         }
         ChatMessage.Role role = ChatMessage.Role.fromString(record.getRole());
         return new ChatMessage(role, record.getContent());
+    }
+
+    private List<ChatMessage> toChatMessages(List<ConversationMessageDO> records) {
+        if (CollUtil.isEmpty(records)) {
+            return List.of();
+        }
+        return records.stream()
+                .filter(record -> record != null && StrUtil.isNotBlank(record.getContent()))
+                .map(record -> new ChatMessage(
+                        ChatMessage.Role.fromString(record.getRole()),
+                        record.getContent()
+                ))
+                .filter(this::isHistoryMessage)
+                .toList();
     }
 
     /**

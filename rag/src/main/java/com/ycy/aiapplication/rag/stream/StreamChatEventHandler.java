@@ -101,7 +101,11 @@ public class StreamChatEventHandler implements StreamCallback {
         String content = answer.toString();
         String messageId=null;
         if(StrUtil.isNotBlank(content))
-            messageId=memoryService.append(conversationId,userId, ChatMessage.assistant(content));
+            messageId=memoryService.appendWithoutCompression(
+                    conversationId,
+                    userId,
+                    ChatMessage.assistant(content)
+            );
         String title=resolveTitleForEvent();
         return new CompletionPayload(String.valueOf(messageId),title);
     }
@@ -181,7 +185,10 @@ public class StreamChatEventHandler implements StreamCallback {
             return;
         // The callback runs on an async streaming thread, so ThreadLocal user context
         // may no longer be available here. Persist with the userId captured at start.
-        String messageId = memoryService.append(conversationId, userId, ChatMessage.assistant(answer.toString()));
+        String content = answer.toString();
+        String messageId = StrUtil.isBlank(content)
+                ? null
+                : memoryService.append(conversationId, userId, ChatMessage.assistant(content));
         String title=resolveTitleForEvent();
         String messageIdText=StrUtil.isBlank(messageId)?null:messageId;
         sender.sendEvent(SSEEventType.FINISH.value(), new CompletionPayload(messageIdText, title));

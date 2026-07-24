@@ -4,22 +4,20 @@ import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.ycy.aiapplication.rag.dao.entity.ConversationDO;
 import com.ycy.aiapplication.rag.dao.entity.ConversationMessageDO;
-import com.ycy.aiapplication.rag.dao.entity.ConversationSummaryDO;
 import com.ycy.aiapplication.rag.dao.mapper.ConversationMapper;
 import com.ycy.aiapplication.rag.dao.mapper.ConversationMessageMapper;
-import com.ycy.aiapplication.rag.dao.mapper.ConversationSummaryMapper;
 import com.ycy.aiapplication.rag.service.ConversationComplexQueryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Collections;
 
 @Service
 @RequiredArgsConstructor
 public class ConversationComplexQueryServiceImpl implements ConversationComplexQueryService {
 
     private final ConversationMessageMapper messageMapper;
-    private final ConversationSummaryMapper summaryMapper;
     private final ConversationMapper conversationMapper;
 
     @Override
@@ -60,6 +58,51 @@ public class ConversationComplexQueryServiceImpl implements ConversationComplexQ
     }
 
     @Override
+    public List<ConversationMessageDO> listLatestMessagesBeforeId(String conversationId,
+                                                                  String userId,
+                                                                  String beforeId,
+                                                                  int limit) {
+        if (StrUtil.isBlank(conversationId)
+                || StrUtil.isBlank(userId)
+                || StrUtil.isBlank(beforeId)
+                || limit <= 0) {
+            return List.of();
+        }
+        List<ConversationMessageDO> records = messageMapper.selectList(
+                Wrappers.lambdaQuery(ConversationMessageDO.class)
+                        .eq(ConversationMessageDO::getConversationId, conversationId)
+                        .eq(ConversationMessageDO::getUserId, userId)
+                        .in(ConversationMessageDO::getRole, "user", "assistant")
+                        .eq(ConversationMessageDO::getDeleted, 0)
+                        .lt(ConversationMessageDO::getId, beforeId)
+                        .orderByDesc(ConversationMessageDO::getId)
+                        .last("limit " + limit)
+        );
+        Collections.reverse(records);
+        return records;
+    }
+
+    @Override
+    public List<ConversationMessageDO> listMessagesAfterThroughId(String conversationId,
+                                                                  String userId,
+                                                                  String afterId,
+                                                                  String throughId) {
+        if (StrUtil.isBlank(conversationId) || StrUtil.isBlank(userId) || StrUtil.isBlank(throughId)) {
+            return List.of();
+        }
+        var query = Wrappers.lambdaQuery(ConversationMessageDO.class)
+                .eq(ConversationMessageDO::getConversationId, conversationId)
+                .eq(ConversationMessageDO::getUserId, userId)
+                .in(ConversationMessageDO::getRole, "user", "assistant")
+                .eq(ConversationMessageDO::getDeleted, 0)
+                .le(ConversationMessageDO::getId, throughId);
+        if (StrUtil.isNotBlank(afterId)) {
+            query.gt(ConversationMessageDO::getId, afterId);
+        }
+        return messageMapper.selectList(query.orderByAsc(ConversationMessageDO::getId));
+    }
+
+    @Override
     public String findMaxMessageIdAtOrBefore(String conversationId, String userId, java.util.Date at) {
         if (StrUtil.isBlank(conversationId) || StrUtil.isBlank(userId) || at == null) {
             return null;
@@ -87,21 +130,6 @@ public class ConversationComplexQueryServiceImpl implements ConversationComplexQ
                         .eq(ConversationMessageDO::getUserId, userId)
                         .eq(ConversationMessageDO::getRole, "user")
                         .eq(ConversationMessageDO::getDeleted, 0)
-        );
-    }
-
-    @Override
-    public ConversationSummaryDO findLatestSummary(String conversationId, String userId) {
-        if (StrUtil.isBlank(conversationId) || StrUtil.isBlank(userId)) {
-            return null;
-        }
-        return summaryMapper.selectOne(
-                Wrappers.lambdaQuery(ConversationSummaryDO.class)
-                        .eq(ConversationSummaryDO::getConversationId, conversationId)
-                        .eq(ConversationSummaryDO::getUserId, userId)
-                        .eq(ConversationSummaryDO::getDeleted, 0)
-                        .orderByDesc(ConversationSummaryDO::getId)
-                        .last("limit 1")
         );
     }
 
