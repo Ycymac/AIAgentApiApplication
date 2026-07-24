@@ -126,3 +126,4 @@ build/
 /docs/memo/
 /docs/test-data/
 *.sql
+/.env

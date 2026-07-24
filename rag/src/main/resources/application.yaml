@@ -10,6 +10,10 @@ spring:
       host: 192.168.88.131
       port: 6379
       password: 206721
+  config:
+    import:
+      - "optional:file:.env[.properties]"
+      - "optional:file:../.env[.properties]"
 
 rocketmq:
   name-server: 192.168.88.131:9876
@@ -22,10 +26,10 @@ rocketmq:
 
 aliyun:
   oss:
-    endpoint: needed
-    accessKeyId: needed
-    accessKeySecret:  needed
-    bucketName: needed
+    endpoint: ${ALIYUN_OSS_ENDPOINT}
+    accessKeyId: ${ALIYUN_OSS_ACCESS_KEY_ID}
+    accessKeySecret:  ${ALIYUN_OSS_ACCESS_KEY_SECRET}
+    bucketName: ${ALIYUN_OSS_BUCKET_NAME}
 
 
 
@@ -64,6 +68,7 @@ rag:
   intent:
     first-layer-min-score: 0.55
     knowledge-min-score: 0.45
+    knowledge-global-min-score: 0.20
     knowledge-top-n: 3
   rewrite:
     query-rewrite-enabled: true
@@ -108,14 +113,14 @@ ai:
   providers:
     bailian:
       enabled: true
-      api-key: needed
+      api-key: ${BAILIAN_API_KEY}
       base-url: https://dashscope.aliyuncs.com
       embedding-path: /api/v1/services/embeddings/text-embedding/text-embedding
       rerank-path: /api/v1/services/rerank/text-rerank/text-rerank
       chat-path: /compatible-mode/v1/chat/completions
     siliconflow:
       enabled: true
-      api-key: needed
+      api-key: ${SILICONFLOW_API_KEY}
       base-url: https://api.siliconflow.cn
       embedding-path: /v1/embeddings
       chat-path: /v1/chat/completions
@@ -134,12 +139,13 @@ ai:
     primary-model: qwen3-vl-rerank
     backup-models:
       - qwen3-rerank
+      - gte-rerank-v2
   chat:
     default-provider: bailian
-    default-model: qwen3.6-flash
+    default-model: deepseek-v4-flash
     models:
-      bailian_1: qwen3.6-flash
-      bailian_2: qwen3.7-plus
+      bailian_1: deepseek-v4-flash
+      bailian_2: qwen3.6-flash
       siliconflow_1: deepseek-ai/DeepSeek-V4-Flash
       siliconflow_2: Pro/deepseek-ai/DeepSeek-V3.2
     backup-models:
